@@ -1,0 +1,67 @@
+#!/bin/bash
+
+# Use the first two disks found
+disks=`ls /dev | grep -E 'sd[^0-9]$' | head -2`
+numdisks=`echo $disks | wc -w`
+
+root_part_label=ROOT
+swap_part_label=SWAP
+
+tmp_root_part_label=$root_part_label
+tmp_swap_part_label=$swap_part_label
+
+for disk in $disks; do
+
+	# Destroy any existing partitions
+	dd if=/dev/zero of=/dev/$disk bs=512 count=1
+	
+	# Create new partition table
+	sgdisk /dev/$disk -o
+	
+	# Create swap partition
+	sgdisk /dev/$disk -n 1::+16GiB -t 1:8200
+	tune2fs –L $tmp_swap_part_label /dev/${disk}1
+	
+	# Create partition for /
+	sgdisk /dev/$disk -n 2
+	tune2fs –L $tmp_root_part_label /dev/${disk}2
+	
+	# Format the root partition
+	mkfs.ext4 /dev/${disk}2
+	
+	# Make sure partitions on backup disk have different labels
+	tmp_swap_part_label=${swap_part_label}_bk
+	tmp_root_part_label=${tmp_root_part_label}_bk
+	
+done
+
+# Mount active system partition at /mnt
+mount -L $root_part_label /mnt
+
+
+# Add entries to fstab 
+mkdir /mnt/etc
+echo "# Device Mountpoint FStype Options Dump Pass#" > /mnt/etc/fstab
+echo "LABEL=$swap_part_label none swap sw 0 0" >> /mnt/etc/fstab
+echo "LABEL=$root_part_label / ext4 rw 1 1" >> /mnt/etc/fstab
+echo "proc /proc proc defaults 0 0" >> /mnt/etc/fstab
+
+if [ $numdisks -gt 1 ]; then
+
+	# Mount backup system partition at /bk
+	mkdir /bk
+	mount /dev/gpt/${root_part_label}_bk /bk
+	
+	# Add entries to fstab backup $PATH_FSTAB
+	mkdir /bk/etc
+	echo "# Device Mountpoint FStype Options Dump Pass#" > /bk/etc/fstab
+	echo "LABEL=${swap_part_label}_bk none swap sw 0 0" >> /bk/etc/fstab
+	echo "LABEL={root_part_label}_bk / ext4 rw 1 1" >> /bk/etc/fstab
+	echo "proc /proc proc defaults 0 0" >> /bk/etc/fstab
+	
+	# Unmount backup partition
+	umount /bk
+	rmdir /bk
+
+fi
+

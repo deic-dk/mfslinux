@@ -3,3 +3,6 @@ work
 *.iso
 config/*
 !config/default
+/tmp/
+/.gitignore
+/.project

@@ -26,19 +26,20 @@ MKISOFS?=	$(shell which mkisofs || which genisoimage)
 LS?=		$(shell which ls)
 FILE?=		$(shell which file)
 BSDTAR?=	$(shell which bsdtar)
-BUILD_OS?=	$(shell uname)
+UNAME_S := $(shell uname -s)
 
-ifeq ($(BUILD_OS),FreeBSD)
+ifeq ($(UNAME_S),FreeBSD)
 WGET?=		$(shell which fetch)
 WGET_ARGS?=	-q
 OPKG_CL?=	$(shell which opkg-cl)
 else
-WGET?=		$(shell which wget)
-WGET_ARGS?=	-nv
+WGET?=		$(shell which curl)
+WGET_ARGS?=	-O -L
 endif
 
 CURDIR?=	$(shell pwd)
 CONFIGDIR?=	$(CURDIR)/config
+CUSTOMDIR?=	$(CURDIR)/customfiles
 WRKDIR?=	$(CURDIR)/work
 ISOLINUXDIR?=	$(CURDIR)/isolinux
 DOWNLOADDIR?=	$(CURDIR)/download
@@ -81,7 +82,7 @@ else
 endif
 
 OPKG_ENV=	env PATH="/usr/sbin:/usr/bin:/sbin:/bin"
-ifeq ($(BUILD_OS),FreeBSD)
+ifeq ($(UNAME_S),FreeBSD)
 OPKG_CHROOT=
 OPKG_PROG=	$(OPKG_CL)
 OPKG_ARGS=	--chroot $(OPENWRT_ROOTDIR) \
@@ -206,9 +207,9 @@ $(WRKDIR)/.add_packages_done:
 	fi; \
 	for PKG in $$PACKAGES_ADD; do \
 	PKGNAME=`basename $$PKG`; \
-	$(CP) $(DOWNLOADDIR)/$$PKGNAME $(OPENWRT_ROOTDIR)/packages; \
+	$(CP) $(DOWNLOADDIR)/$$PKGNAME $(OPENWRT_ROOTDIR)/tmp; \
 	$(OPKG_CHROOT) $(OPKG_ENV) $(OPKG_PROG) $(OPKG_ARGS) \
-		install /packages/$$PKGNAME; \
+		install /tmp/$$PKGNAME; \
 	done; \
 	$(RM) -rf $(OPENWRT_ROOTDIR)/packages
 	$(_v)$(TOUCH) $(WRKDIR)/.add_packages_done
@@ -227,6 +228,12 @@ $(WRKDIR)/.copy_configuration_files_done:
 	fi; \
 	done
 	$(_v)$(TOUCH) $(WRKDIR)/.copy_configuration_files_done
+
+copy_custom_files: $(WRKDIR)/.copy_custom_files_done
+$(WRKDIR)/.copy_custom_files_done:
+	$(_v)echo "Coypying custom files"
+	$(CP) -a $(CUSTOMDIR)/* $(WRKDIR)/openwrt_root/;
+	$(_v)$(TOUCH) $(WRKDIR)/.copy_custom_files_done
 
 host_key: $(WRKDIR)/.host_key_done
 $(WRKDIR)/.host_key_done:
@@ -275,7 +282,7 @@ $(WRKDIR)/.copy_isolinux_files_done:
 		$(ISOLINUX_BOOTTXT) > $(ISODIR)/isolinux/boot.txt
 	$(_v)$(TOUCH) $(WRKDIR)/.copy_isolinux_files_done
 
-customize_rootfs: deploy_init remove_packages add_packages copy_configuration_files set_root_pw set_root_shell host_key banner authorized_keys
+customize_rootfs: deploy_init remove_packages add_packages copy_configuration_files copy_custom_files set_root_pw set_root_shell host_key banner authorized_keys
 
 generate_initramfs: download_rootfs_tar extract_rootfs_tar customize_rootfs $(ISODIR)/isolinux/initramfs.igz
 
