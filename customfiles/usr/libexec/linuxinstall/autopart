@@ -3,6 +3,7 @@
 # Use the first two disks found
 disks=`ls /dev | grep -E 'sd[^0-9]$' | head -2`
 numdisks=`echo $disks | wc -w`
+firstdisk=`echo "${disks[0]}" | head -1`
 
 root_part_label=ROOT
 swap_part_label=SWAP
@@ -13,21 +14,24 @@ tmp_swap_part_label=$swap_part_label
 for disk in $disks; do
 
 	# Destroy any existing partitions
-	dd if=/dev/zero of=/dev/$disk bs=512 count=1
+	dd if=/dev/zero of=/dev/$disk bs=4M count=1
 	
 	# Create new partition table
-	sgdisk /dev/$disk -o
+	sgdisk -Z /dev/$disk
+	sgdisk -o /dev/$disk
+	
+	# Create bios_grub partition
+	sgdisk -n 0::+16M -t 0:ef02 /dev/${disk}
 	
 	# Create swap partition
-	sgdisk /dev/$disk -n 1::+16GiB -t 1:8200
-	tune2fs –L $tmp_swap_part_label /dev/${disk}1
+	sgdisk -n 0::+16G -t 0:8200 -c 0:$tmp_swap_part_label /dev/${disk}
+	mkswap /dev/${disk}2
 	
 	# Create partition for /
-	sgdisk /dev/$disk -n 2
-	tune2fs –L $tmp_root_part_label /dev/${disk}2
+	sgdisk -n 0 -c 0:$tmp_root_part_label /dev/${disk}
 	
 	# Format the root partition
-	mkfs.ext4 /dev/${disk}2
+	echo y | mkfs.ext4 /dev/${disk}3
 	
 	# Make sure partitions on backup disk have different labels
 	tmp_swap_part_label=${swap_part_label}_bk
@@ -36,27 +40,28 @@ for disk in $disks; do
 done
 
 # Mount active system partition at /mnt
-mount -L $root_part_label /mnt
-
+mount -t ext4 /dev/${firstdisk}3 /mnt
 
 # Add entries to fstab 
 mkdir /mnt/etc
 echo "# Device Mountpoint FStype Options Dump Pass#" > /mnt/etc/fstab
-echo "LABEL=$swap_part_label none swap sw 0 0" >> /mnt/etc/fstab
-echo "LABEL=$root_part_label / ext4 rw 1 1" >> /mnt/etc/fstab
+echo "PARTLABEL=$swap_part_label none swap sw 0 0" >> /mnt/etc/fstab
+echo "PARTLABEL=$root_part_label / ext4 rw 1 1" >> /mnt/etc/fstab
 echo "proc /proc proc defaults 0 0" >> /mnt/etc/fstab
 
 if [ $numdisks -gt 1 ]; then
 
+	seconddisk=`echo "${disks[0]}" | head -2 | tail -1`
+
 	# Mount backup system partition at /bk
 	mkdir /bk
-	mount /dev/gpt/${root_part_label}_bk /bk
-	
+	mount -t ext4 /dev/${seconddisk}3 /bk
+
 	# Add entries to fstab backup $PATH_FSTAB
 	mkdir /bk/etc
 	echo "# Device Mountpoint FStype Options Dump Pass#" > /bk/etc/fstab
-	echo "LABEL=${swap_part_label}_bk none swap sw 0 0" >> /bk/etc/fstab
-	echo "LABEL={root_part_label}_bk / ext4 rw 1 1" >> /bk/etc/fstab
+	echo "PARTLABEL${swap_part_label}_bk none swap sw 0 0" >> /bk/etc/fstab
+	echo "PARTLABEL{root_part_label}_bk / ext4 rw 1 1" >> /bk/etc/fstab
 	echo "proc /proc proc defaults 0 0" >> /bk/etc/fstab
 	
 	# Unmount backup partition

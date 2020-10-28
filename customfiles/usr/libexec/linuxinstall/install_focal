@@ -1,0 +1,48 @@
+#!/bin/bash
+
+# Install base system
+ln -s /usr/share/debootstrap/scripts/gutsy /usr/share/debootstrap/scripts/focal
+debootstrap --verbose --arch amd64 focal /mnt http://dk.archive.ubuntu.com/ubuntu
+mount -t proc none /mnt/proc
+mount --rbind /sys /mnt/sys
+mount -o bind /dev /mnt/dev
+mount --bind /dev/pts /mnt/dev/pts
+
+# Add universe
+echo "deb http://dk.archive.ubuntu.com/ubuntu bionic universe" >> /mnt/etc/apt/sources.list
+#echo "deb http://dk.archive.ubuntu.com/ubuntu focal universe" >> /mnt/etc/apt/sources.list
+chroot /mnt apt-get update
+
+# Configure locale
+chroot /mnt apt-get install -y locales
+chroot /mnt locale-gen --purge en_US.UTF-8 en_DK.UTF-8 da_DK.UTF-8
+
+# Configure keyboard
+chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive apt-get -y install console-data"
+#chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive dpkg-reconfigure console-data"
+
+# Install the kernel
+chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive apt-get -y install -y linux-image-unsigned-5.4.0-26-generic"
+
+# Install packages
+chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive apt-get -y install -y netscript-2.4 \
+netplan.io resolvconf ethtool openssh-client openssh-server net-tools inetutils-tools curl \
+bind9-dnsutils bind9-host psmisc"
+
+# Create default network configuration
+mkdir /mnt/etc/netplan
+cat <<EOF>> /mnt/etc/netplan/01-netcfg.yaml
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    enp129s0f0:
+      dhcp4: yes
+EOF
+echo "ENABLED=1" >> /mnt/etc/default/netplan
+
+# Install grub
+sed 's|quiet splash||' /mnt/etc/default/grub
+chroot /mnt grub-install /dev/sda
+chroot /mnt update-grub
+

@@ -1,0 +1,49 @@
+#!/bin/bash
+
+# Install base system
+ln -s /usr/share/debootstrap/scripts/gutsy /usr/share/debootstrap/scripts/focal
+debootstrap --verbose --arch amd64 bionic /mnt http://dk.archive.ubuntu.com/ubuntu
+mount -t proc none /mnt/proc
+mount --rbind /sys /mnt/sys
+mount -o bind /dev /mnt/dev
+mount --bind /dev/pts /mnt/dev/pts
+
+# Add universe
+echo "deb http://dk.archive.ubuntu.com/ubuntu bionic universe" >> /mnt/etc/apt/sources.list
+chroot /mnt apt-get update
+
+# Configure locale
+chroot /mnt apt-get install -y locales
+chroot /mnt locale-gen --purge en_US.UTF-8 en_DK.UTF-8 da_DK.UTF-8
+
+# Configure keyboard
+chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive apt-get -y install console-data"
+#chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive dpkg-reconfigure console-data"
+
+# Install the kernel
+#chroot /mnt apt-cache search linux-image
+# 18.04
+chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive apt-get -y install -y linux-image-unsigned-4.15.0-20-generic"
+
+# Install packages
+# 18.04
+chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive apt-get -y install -y ifupdown \
+netplan.io resolvconf ethtool openssh-client openssh-server net-tools inetutils-tools curl \
+dnsutils bind9-host psmisc grub2"
+
+# Create default network configuration
+mkdir /mnt/etc/netplan
+cat <<EOF>> /mnt/etc/netplan/01-netcfg.yaml
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    enp129s0f0:
+      dhcp4: yes
+EOF
+echo "ENABLED=1" >> /mnt/etc/default/netplan
+
+# Install grub
+chroot /mnt grub-install /dev/sda
+chroot /mnt update-grub
+

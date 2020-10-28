@@ -233,6 +233,7 @@ copy_custom_files: $(WRKDIR)/.copy_custom_files_done
 $(WRKDIR)/.copy_custom_files_done:
 	$(_v)echo "Coypying custom files"
 	$(CP) -a $(CUSTOMDIR)/* $(WRKDIR)/openwrt_root/;
+	$(SED) -i -E 's|(export PATH=)"(.*)"|\1"\2:/usr/libexec/linuxinstall"|' $(WRKDIR)/openwrt_root/etc/profile
 	$(_v)$(TOUCH) $(WRKDIR)/.copy_custom_files_done
 
 host_key: $(WRKDIR)/.host_key_done

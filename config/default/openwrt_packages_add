@@ -31,6 +31,13 @@ base/iftop_2018-10-03-77901c8c-1_x86_64.ipk
 base/e2fsprogs_1.44.5-2_x86_64.ipk
 base/resize2fs_1.44.5-2_x86_64.ipk
 base/tune2fs_1.44.5-2_x86_64.ipk
+base/libbfd_2.27-1_x86_64.ipk
+base/ar_2.27-1_x86_64.ipk
+base/libmbedtls12_2.16.8-1_x86_64.ipk
+base/ca-bundle_20200601-1_all.ipk
+base/libcurl4_7.66.0-3_x86_64.ipk
+base/curl_7.66.0-3_x86_64.ipk
+base/swap-utils_2.34-1_x86_64.ipk
 packages/atftp_0.7.2-1_x86_64.ipk
 packages/dmidecode_3.2-1_x86_64.ipk
 packages/less_530-3_x86_64.ipk
@@ -44,7 +51,7 @@ packages/ipmitool_1.8.18-4_x86_64.ipk
 packages/netcat_0.7.1-1_x86_64.ipk
 packages/bash_5.0-4_x86_64.ipk
 packages/libuv1_1.40.0-1_x86_64.ipk
-packages/bind-libs_9.16.6-1_x86_64.ipk
+packages/bind-libs_9.16.7-1_x86_64.ipk
 packages/bind-host_9.16.6-1_x86_64.ipk
 packages/bind-dig_9.16.6-1_x86_64.ipk
 packages/libdevmapper_2.03.02-2_x86_64.ipk
@@ -74,5 +81,16 @@ packages/gdisk_1.0.4-2_x86_64.ipk
 packages/cgdisk_1.0.4-2_x86_64.ipk
 packages/sgdisk_1.0.4-2_x86_64.ipk
 packages/cryptsetup_2.1.0-2_x86_64.ipk
+packages/coreutils_8.30-2_x86_64.ipk
+packages/coreutils-chroot_8.30-2_x86_64.ipk
+packages/coreutils-sha1sum_8.30-2_x86_64.ipk
 packages/debootstrap_1.0.110~bpo9+1-1_x86_64.ipk
+packages/openssh-sftp-server_8.0p1-1_x86_64.ipk
+packages/gnupg_1.4.23-1_x86_64.ipk
+packages/gnupg-utils_1.4.23-1_x86_64.ipk
+packages/gpgv_1.4.23-1_x86_64.ipk
+packages/atftp_0.7.2-1_x86_64.ipk
+packages/bind-host_9.16.7-1_x86_64.ipk
+packages/bind-nslookup_9.16.7-1_x86_64.ipk
+
 

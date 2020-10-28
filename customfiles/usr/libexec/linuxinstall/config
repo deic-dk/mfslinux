@@ -1,0 +1,22 @@
+#!/bin/sh
+
+mac=`ifconfig eth0 | grep HWaddr | awk '{print tolower($NF)}'| sed 's|:|-|g'`
+
+tftp_server_ip=`ip route | grep default | awk '{print $3}'`
+
+# Grab network configuration file if there
+atftp $tftp_server_ip -g -r /ubuntu/config/$mac/01-netcfg.yaml -l 01-netcfg.yaml
+
+# Public address
+IP_ADDRESS=`grep 'addresses: \[.*/.*\]' 01-netcfg.yaml | grep -v '\[10\.' | sed 's|^.*: \[||' | sed 's|/.*$||'`
+
+# 10.0 address
+IP_ADDRESS_PRIVATE=`grep 'addresses: \[.*/.*\]' 01-netcfg.yaml | grep '\[10\.' | sed 's|^.*: \[||' | sed 's|/.*$||'`
+
+mv 01-netcfg.yaml "/mnt/etc/netplan/"
+
+HOSTNAME_FQ=`host $IP_ADDRESS | awk '{print $NF}'`
+
+HOSTNAME=`echo $HOSTNAME_FQ | sed 's|\..*$||g'`
+
+echo $HOSTNAME > /mnt/etc/hostname
