@@ -42,7 +42,7 @@ EOF
 echo "ENABLED=1" >> /mnt/etc/default/netplan
 
 # Install grub
-sed 's|quiet splash||' /mnt/etc/default/grub
+sed -i 's|quiet splash||' /mnt/etc/default/grub
 chroot /mnt grub-install /dev/sda
 chroot /mnt update-grub
 

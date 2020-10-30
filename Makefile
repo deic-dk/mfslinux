@@ -4,6 +4,9 @@
 #
 MFSLINUX_VERSION?=	0.1.7
 
+# Default Ubuntu version, override with e.g. make UBUNTU_RELEASE=bionic
+UBUNTU_RELEASE?=		"focal"
+
 GZIP?=		$(shell which gzip)
 MKDIR?=		$(shell which mkdir)
 RMDIR?=		$(shell which rmdir)
@@ -69,7 +72,7 @@ ROOT_SHELL?=	/bin/bash
 
 GIT_REVISION=	$(shell $(GIT) rev-parse --short HEAD)
 
-OUTPUT_ISO?=	mfslinux-$(MFSLINUX_VERSION)-$(GIT_REVISION).iso
+OUTPUT_ISO?=	mfslinux-$(MFSLINUX_VERSION)-$(GIT_REVISION)-$(UBUNTU_RELEASE).iso
 ARTIFACT?=	mfslinux.iso
 OUTPUT_ISO_LABEL?=	mfslinux
 
@@ -219,9 +222,9 @@ $(WRKDIR)/.copy_configuration_files_done:
 	$(_v)echo "Coypying configuration files"
 	$(_v)for file in $(CONFIGFILES); do \
 	if [ -f $(CONFIGDIR)/$$file ]; then \
-		$(CP) -f $(CONFIGDIR)/$$file $(WRKDIR)/openwrt_root/etc/config/$$file; \
+		$(CP) -f $(CONFIGDIR)/$$file $(OPENWRT_ROOTDIR)/etc/config/$$file; \
 	elif [ -f $(CONFIGDIR)/default/$$file ]; then \
-		$(CP) -f $(CONFIGDIR)/default/$$file $(WRKDIR)/openwrt_root/etc/config/$$file; \
+		$(CP) -f $(CONFIGDIR)/default/$$file $(OPENWRT_ROOTDIR)/etc/config/$$file; \
 	else \
 		echo "Missing configuration file: $(CONFIGDIR)/$$file"; \
 		exit 1; \
@@ -232,8 +235,8 @@ $(WRKDIR)/.copy_configuration_files_done:
 copy_custom_files: $(WRKDIR)/.copy_custom_files_done
 $(WRKDIR)/.copy_custom_files_done:
 	$(_v)echo "Coypying custom files"
-	$(CP) -a $(CUSTOMDIR)/* $(WRKDIR)/openwrt_root/;
-	$(SED) -i -E 's|(export PATH=)"(.*)"|\1"\2:/usr/libexec/linuxinstall"|' $(WRKDIR)/openwrt_root/etc/profile
+	$(CP) -a $(CUSTOMDIR)/* $(OPENWRT_ROOTDIR)/;
+	$(SED) -i -E 's|(export PATH=)"(.*)"|\1"\2:/usr/libexec/linuxinstall"|' $(OPENWRT_ROOTDIR)/etc/profile
 	$(_v)$(TOUCH) $(WRKDIR)/.copy_custom_files_done
 
 host_key: $(WRKDIR)/.host_key_done
@@ -287,7 +290,11 @@ customize_rootfs: deploy_init remove_packages add_packages copy_configuration_fi
 
 generate_initramfs: download_rootfs_tar extract_rootfs_tar customize_rootfs $(ISODIR)/isolinux/initramfs.igz
 
-iso: generate_initramfs copy_kernel copy_isolinux_files $(OUTPUT_ISO)
+
+iso: generate_initramfs copy_kernel copy_isolinux_files $(UBUNTU_RELEASE) $(OUTPUT_ISO)
+$(UBUNTU_RELEASE):
+	$(_v)echo "Setting Ubuntu release to $(UBUNTU_RELEASE)"
+	$(SED) -i "s|UBUNTU_RELEASE|$(UBUNTU_RELEASE)|" $(OPENWRT_ROOTDIR)/usr/libexec/linuxinstall/ubuntuinstall
 $(OUTPUT_ISO):
 	$(_v)echo "Generating $(OUTPUT_ISO)"
 	$(_v)if [ "$(MKISOFS)" = "" ]; then echo "Error: mkisofs or genisoimage missing"; exit 1; fi

@@ -20,3 +20,8 @@ HOSTNAME_FQ=`host $IP_ADDRESS | awk '{print $NF}'`
 HOSTNAME=`echo $HOSTNAME_FQ | sed 's|\..*$||g'`
 
 echo $HOSTNAME > /mnt/etc/hostname
+
+# Copy over customfiles/install
+
+cp -af /install/* /
+
