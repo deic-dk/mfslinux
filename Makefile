@@ -286,15 +286,14 @@ $(WRKDIR)/.copy_isolinux_files_done:
 		$(ISOLINUX_BOOTTXT) > $(ISODIR)/isolinux/boot.txt
 	$(_v)$(TOUCH) $(WRKDIR)/.copy_isolinux_files_done
 
-customize_rootfs: deploy_init remove_packages add_packages copy_configuration_files copy_custom_files set_root_pw set_root_shell host_key banner authorized_keys
-
-generate_initramfs: download_rootfs_tar extract_rootfs_tar customize_rootfs $(ISODIR)/isolinux/initramfs.igz
-
-
-iso: generate_initramfs copy_kernel copy_isolinux_files $(UBUNTU_RELEASE) $(OUTPUT_ISO)
+customize_rootfs: deploy_init remove_packages add_packages copy_configuration_files copy_custom_files $(UBUNTU_RELEASE) set_root_pw set_root_shell host_key banner authorized_keys
 $(UBUNTU_RELEASE):
 	$(_v)echo "Setting Ubuntu release to $(UBUNTU_RELEASE)"
 	$(SED) -i "s|UBUNTU_RELEASE|$(UBUNTU_RELEASE)|" $(OPENWRT_ROOTDIR)/usr/libexec/linuxinstall/ubuntuinstall
+
+generate_initramfs: download_rootfs_tar extract_rootfs_tar customize_rootfs $(ISODIR)/isolinux/initramfs.igz
+
+iso: generate_initramfs copy_kernel copy_isolinux_files $(OUTPUT_ISO)
 $(OUTPUT_ISO):
 	$(_v)echo "Generating $(OUTPUT_ISO)"
 	$(_v)if [ "$(MKISOFS)" = "" ]; then echo "Error: mkisofs or genisoimage missing"; exit 1; fi
