@@ -26,12 +26,13 @@ curl -fsSL https://download.opensuse.org/repositories/devel:kubic:libcontainers:
 apt update
 apt install -y kubelet kubeadm kubectl cri-o cri-o-runc cri-tools skopeo
 
+# This bug is no longer present
 #sed -i 's|/usr/lib/cri-o-runc/sbin/runc|/usr/sbin/runc|' /etc/crio/crio.conf.d/01-crio-runc.conf
 
-# Hold version
+# If we want to hold the version
 #apt-mark hold kubelet kubeadm kubectl cri-o cri-o-runc
 
-# Fix Ubuntu issues
+# Fix Ubuntu issues - apparently no longer needed
 #sed -i 's|/var/run/dbus/system_bus_socket|/run/dbus/system_bus_socket|' /lib/systemd/system/dbus.socket
 #chmod go+r /lib/systemd/system/kubelet.service
 #echo "DefaultCPUAccounting=yes" >> /etc/systemd/system.conf
@@ -45,23 +46,28 @@ net.ipv4.ip_forward                 = 1
 net.bridge.bridge-nf-call-ip6tables = 1
 EOF
 
+# IP forwarding
 echo '1' > /proc/sys/net/ipv4/ip_forward
+# Pass bridged packets through iptables
 echo '1' > /proc/sys/net/bridge/bridge-nf-call-iptables
-
+echo '1' > /proc/sys/net/bridge/bridge-nf-call-ip6tables
+# Make permanent
 sed -i 's|^#net.ipv4.ip_forward=1|net.ipv4.ip_forward=1|' /etc/sysctl.conf
-
+echo 'net.bridge.bridge-nf-call-iptables=1' >> /etc/sysctl.conf
+echo 'net.bridge.bridge-nf-call-ip6tables=1' >> /etc/sysctl.conf
+# Have crio use 10.2.0.0 for pods instead of the default 10.85.0.0.
 sed -i 's|10.85.0.0/16|10.2.0.0/16|' /etc/cni/net.d/100-crio-bridge.conf
 
 sysctl -p
 sudo sysctl --system
 
-# Ubuntu 20.40 fix, see
-# https://bugs.launchpad.net/ubuntu/+source/ifupdown/+bug/1874515
+# Ubuntu 20.40 fix - see https://bugs.launchpad.net/ubuntu/+source/ifupdown/+bug/1874515
 sed -i -E "s|^(# Finally we destroy the interface)|  brctl addbr br_nat_ext\n\n\1|" /lib/bridge-utils/ifupdown.sh
 
 systemctl enable crio
 systemctl start crio.service
 
+# Necessary for kubctl to use port 6443 instead of 8080...
 echo 'export KUBECONFIG=/etc/kubernetes/admin.conf' >> /root/.bashrc
 
 # Apparently /etc/default/kubelet and/or KUBELET_EXTRA_ARGS is not used in this version
@@ -82,13 +88,13 @@ echo 'export KUBECONFIG=/etc/kubernetes/admin.conf' >> /root/.bashrc
 
 # This does not work because it creates an /etc/kubernetes/kubelet.conf w/o "cgroupDriver: systemd"
 # But it creates manifests etc.
-# Add the above line manually with kubeadm running
+
+# So... add the above line manually with kubeadm running
 #kubeadm reset -f --cri-socket unix:///var/run/crio/crio.sock
 kubeadm init --pod-network-cidr=10.2.0.0/16 --control-plane-endpoint=kube.sciencedata.dk \
---cri-socket=unix:///var/run/crio/crio.sock --apiserver-advertise-address=10.0.0.12
+--cri-socket=unix:///var/run/crio/crio.sock # --apiserver-advertise-address=10.0.0.12
 
-
-# Do this in another shell
+# and do this in another shell...
 echo "cgroupDriver: systemd" >> /var/lib/kubelet/config.yaml
 sed -i -E 's|/usr/bin/kubelet$|/usr/bin/kubelet --cgroup-driver=systemd --runtime-cgroups=/systemd/system.slice --kubelet-cgroups=/systemd/system.slice|' \
 /lib/systemd/system/kubelet.service
@@ -97,6 +103,9 @@ sed -i -E 's|/usr/bin/kubelet$|/usr/bin/kubelet --cgroup-driver=systemd --runtim
 # use DNS this seems necessary. No idea why it is set to a service-cluster-ip-range address
 dns_ips=`kubectl describe ep kube-dns --namespace=kube-system | grep -E '^ *Addresses:' | awk '{print $NF}' | sed "s|,|\\\\\n- |g" | sed 's|^|- |g'`
 sed -i "s|- 10.96.0.10|${dns_ips}|" /var/lib/kubelet/config.yaml
+
+# TODO: look into doing the above in a cleaner way - with a yaml file instead of command-line parameters, i.e.
+# kubeadm init --config=kubeadm-config.yaml
 
 # Address Kubernetes bug
 # https://cloudblue.freshdesk.com/support/solutions/articles/44001886522-how-to-fix-failed-to-get-system-container-stats-on-k8s-service-node-
@@ -108,43 +117,4 @@ EOF
 
 systemctl daemon-reload
 systemctl restart kubelet
-
-# Necessary for kubctl to use port 6443 instead of 8080...
-export KUBECONFIG=/etc/kubernetes/admin.conf
-
-
-
-
-
-##################
-
-curl -LO https://docs.projectcalico.org/manifests/calico-etcd.yaml
-kubectl apply -f calico-etcd.yaml
-
-
-
-curl -LO https://raw.githubusercontent.com/cri-o/cri-o/master/contrib/cni/10-crio-bridge.conf
-sed -i 's|10.85.0.0/16|10.2.0.0/16|' 10-crio-bridge.conf
-mv -i 10-crio-bridge.conf /etc/cni/net.d/
-
-git clone https://github.com/containernetworking/plugins
-cd plugins
-git checkout v0.8.7
-./build_linux.sh
-cp bin/* /opt/cni/bin/
-
-systemctl daemon-reload
-#systemctl enable crio
-systemctl start crio
-
-kubeadm init --config=kubeadm-config.yaml
-
-
-
-
-
-
-
-
-
 
