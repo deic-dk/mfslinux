@@ -1,0 +1,150 @@
+#!/bin/bash
+
+chroot /mnt
+
+# Swapoff
+swapoff -a
+sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+# The above has no effect. We hack for now...
+# This also has no effect with systemd
+echo '@reboot sudo swapoff -a' >> /etc/crontab
+# This has
+systemctl stop `systemctl list-unit-files | grep \.swap | awk '{print $1}'`
+systemctl mask `systemctl list-unit-files | grep \.swap | awk '{print $1}'`
+
+# Add the google cloud package and opensuse repositories
+curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
+echo "deb https://apt.kubernetes.io/ kubernetes-xenial main" | tee /etc/apt/sources.list.d/kubernetes.list
+. /etc/os-release
+sh -c "echo 'deb http://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/x${NAME}_${VERSION_ID}/ /' > /etc/apt/sources.list.d/devel:kubic:libcontainers:stable.list"
+wget -nv https://download.opensuse.org/repositories/devel:kubic:libcontainers:stable/x${NAME}_${VERSION_ID}/Release.key -O- | apt-key add -
+
+echo 'deb http://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable:/cri-o:/1.19/xUbuntu_20.04/ /' | sudo tee /etc/apt/sources.list.d/devel:kubic:libcontainers:stable:cri-o:1.19.list
+curl -fsSL https://download.opensuse.org/repositories/devel:kubic:libcontainers:stable:cri-o:1.19/xUbuntu_20.04/Release.key | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/devel_kubic_libcontainers_stable_cri-o_1.19.gpg > /dev/null
+
+# Install components
+apt update
+apt install -y kubelet kubeadm kubectl cri-o cri-o-runc cri-tools skopeo
+
+#sed -i 's|/usr/lib/cri-o-runc/sbin/runc|/usr/sbin/runc|' /etc/crio/crio.conf.d/01-crio-runc.conf
+
+# Hold version
+#apt-mark hold kubelet kubeadm kubectl cri-o cri-o-runc
+
+# Fix Ubuntu issues
+#sed -i 's|/var/run/dbus/system_bus_socket|/run/dbus/system_bus_socket|' /lib/systemd/system/dbus.socket
+#chmod go+r /lib/systemd/system/kubelet.service
+#echo "DefaultCPUAccounting=yes" >> /etc/systemd/system.conf
+
+# Networking
+modprobe overlay
+modprobe br_netfilter
+cat >> /etc/sysctl.d/99-kubernetes-cri.conf <<EOF
+net.bridge.bridge-nf-call-iptables  = 1
+net.ipv4.ip_forward                 = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+EOF
+
+echo '1' > /proc/sys/net/ipv4/ip_forward
+echo '1' > /proc/sys/net/bridge/bridge-nf-call-iptables
+
+sed -i 's|^#net.ipv4.ip_forward=1|net.ipv4.ip_forward=1|' /etc/sysctl.conf
+
+sed -i 's|10.85.0.0/16|10.2.0.0/16|' /etc/cni/net.d/100-crio-bridge.conf
+
+sysctl -p
+sudo sysctl --system
+
+# Ubuntu 20.40 fix, see
+# https://bugs.launchpad.net/ubuntu/+source/ifupdown/+bug/1874515
+sed -i -E "s|^(# Finally we destroy the interface)|  brctl addbr br_nat_ext\n\n\1|" /lib/bridge-utils/ifupdown.sh
+
+systemctl enable crio
+systemctl start crio.service
+
+echo 'export KUBECONFIG=/etc/kubernetes/admin.conf' >> /root/.bashrc
+
+# Apparently /etc/default/kubelet and/or KUBELET_EXTRA_ARGS is not used in this version
+#cat <<EOF | tee /etc/default/kubelet
+#KUBELET_EXTRA_ARGS=--feature-gates="AllAlpha=false,RunAsGroup=true" \
+#--container-runtime=remote \
+#--cgroup-driver=systemd \
+#--container-runtime-endpoint='unix:///var/run/crio/crio.sock' \
+#--runtime-request-timeout=5m
+#EOF
+
+# Hardcode the service definition instead
+#sed -i 's|/usr/bin/kubelet|/usr/bin/kubelet --feature-gates="AllAlpha=false,RunAsGroup=true" \\\
+#	--container-runtime=remote \\\
+#	--cgroup-driver=systemd \\\
+#	--container-runtime-endpoint=unix:///var/run/crio/crio.sock \\\
+#	--runtime-request-timeout=1m|' /lib/systemd/system/kubelet.service
+
+# This does not work because it creates an /etc/kubernetes/kubelet.conf w/o "cgroupDriver: systemd"
+# But it creates manifests etc.
+# Add the above line manually with kubeadm running
+#kubeadm reset -f --cri-socket unix:///var/run/crio/crio.sock
+kubeadm init --pod-network-cidr=10.2.0.0/16 --control-plane-endpoint=kube.sciencedata.dk \
+--cri-socket=unix:///var/run/crio/crio.sock --apiserver-advertise-address=10.0.0.12
+
+
+# Do this in another shell
+echo "cgroupDriver: systemd" >> /var/lib/kubelet/config.yaml
+sed -i -E 's|/usr/bin/kubelet$|/usr/bin/kubelet --cgroup-driver=systemd --runtime-cgroups=/systemd/system.slice --kubelet-cgroups=/systemd/system.slice|' \
+/lib/systemd/system/kubelet.service
+
+# This is written to /etc/resolv.conf inside the containers, so to allow pods/containers to
+# use DNS this seems necessary. No idea why it is set to a service-cluster-ip-range address
+dns_ips=`kubectl describe ep kube-dns --namespace=kube-system | grep -E '^ *Addresses:' | awk '{print $NF}' | sed "s|,|\\\\\n- |g" | sed 's|^|- |g'`
+sed -i "s|- 10.96.0.10|${dns_ips}|" /var/lib/kubelet/config.yaml
+
+# Address Kubernetes bug
+# https://cloudblue.freshdesk.com/support/solutions/articles/44001886522-how-to-fix-failed-to-get-system-container-stats-on-k8s-service-node-
+cat <<EOF>/etc/systemd/system/kubelet.service.d/11-cgroups.conf
+[Service]
+CPUAccounting=true
+MemoryAccounting=true
+EOF
+
+systemctl daemon-reload
+systemctl restart kubelet
+
+# Necessary for kubctl to use port 6443 instead of 8080...
+export KUBECONFIG=/etc/kubernetes/admin.conf
+
+
+
+
+
+##################
+
+curl -LO https://docs.projectcalico.org/manifests/calico-etcd.yaml
+kubectl apply -f calico-etcd.yaml
+
+
+
+curl -LO https://raw.githubusercontent.com/cri-o/cri-o/master/contrib/cni/10-crio-bridge.conf
+sed -i 's|10.85.0.0/16|10.2.0.0/16|' 10-crio-bridge.conf
+mv -i 10-crio-bridge.conf /etc/cni/net.d/
+
+git clone https://github.com/containernetworking/plugins
+cd plugins
+git checkout v0.8.7
+./build_linux.sh
+cp bin/* /opt/cni/bin/
+
+systemctl daemon-reload
+#systemctl enable crio
+systemctl start crio
+
+kubeadm init --config=kubeadm-config.yaml
+
+
+
+
+
+
+
+
+
+
