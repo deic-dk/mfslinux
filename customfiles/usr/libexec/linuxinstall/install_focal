@@ -29,7 +29,7 @@ chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive apt-get -y install -y linux-
 chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive apt-get -y install -y netscript-2.4 \
 netplan.io resolvconf ethtool openssh-client openssh-server net-tools inetutils-tools curl \
 bind9-dnsutils bind9-host psmisc vim pciutils dkms vlan unicode-data gnupg git golang \
-apt-transport-https wget jq nfs-common"
+apt-transport-https wget jq nfs-common ipvsadm"
 
 # Install kernel module for Realtek network card - the one in the distro does not compile with current kernel
 chroot /mnt bash -c "curl -LO http://security.ubuntu.com/ubuntu/pool/universe/r/r8168/r8168-dkms_8.048.00-1ubuntu0.20.04.1_all.deb"
