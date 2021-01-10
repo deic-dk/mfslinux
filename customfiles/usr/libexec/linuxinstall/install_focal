@@ -10,26 +10,33 @@ mount --bind /dev/pts /mnt/dev/pts
 
 # Add universe
 echo "deb http://dk.archive.ubuntu.com/ubuntu focal universe" >> /mnt/etc/apt/sources.list
-chroot /mnt apt-get update
+# Add caddy
+chroot /mnt apt install -y debian-keyring debian-archive-keyring apt-transport-https
+chroot /mnt bash -c "curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/cfg/gpg/gpg.155B6D79CA56EA34.key' | apt-key add -"
+chroot /mnt bash -c "curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/cfg/setup/config.deb.txt?distro=debian&version=any-version' | sudo tee -a /etc/apt/sources.list.d/caddy-stable.list"
+
+chroot /mnt apt update
 
 # Configure locale
-chroot /mnt apt-get install -y locales
+chroot /mnt apt install -y locales
 chroot /mnt locale-gen --purge en_US.UTF-8 en_DK.UTF-8 da_DK.UTF-8
 chroot /mnt localectl set-locale LANGUAGE="en_US:en"
 chroot /mnt localectl set-locale LANG="en_US.utf8"
 
 # Configure keyboard
-chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive apt-get -y install console-data"
+chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive apt -y install console-data"
 #chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive dpkg-reconfigure console-data"
 
 # Install the kernel
-chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive apt-get -y install -y linux-image-unsigned-5.4.0-26-generic"
+chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive apt -y install -y linux-image-unsigned-5.4.0-26-generic"
 
 # Install packages
-chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive apt-get -y install -y netscript-2.4 \
+chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive apt -y install -y netscript-2.4 \
 netplan.io resolvconf ethtool openssh-client openssh-server net-tools inetutils-tools curl \
 bind9-dnsutils bind9-host psmisc vim pciutils dkms vlan unicode-data gnupg git golang \
-apt-transport-https wget jq nfs-common ipvsadm"
+apt-transport-https wget jq nfs-common ipvsadm caddy python3-pip"
+
+chroot /mnt pip3 install yq
 
 # Install kernel module for Realtek network card - the one in the distro does not compile with current kernel
 chroot /mnt bash -c "curl -LO http://security.ubuntu.com/ubuntu/pool/universe/r/r8168/r8168-dkms_8.048.00-1ubuntu0.20.04.1_all.deb"
