@@ -156,10 +156,11 @@ kubectl -n kube-public describe secret `kubectl -n kube-public get secret | grep
 
 # Paste it into the dashboard web interface on
 # http://127.0.0.1:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/
-
+s
 ### Install NFS StorageClass
+git clone https://github.com/deic-dk/sciencedata_kubernetes.git
 
-git clone https://github.com/kubernetes-sigs/nfs-subdir-external-provisioner.git
-
-
+kubectl apply -f sciencedata_kubernetes/nfs_serviceaccount.yaml
+kubectl create rolebinding nfs-admin --clusterrole=admin --serviceaccount=default:nfs-client-provisioner --namespace=default
+kubectl create clusterrolebinding nfs-cluster-admin --clusterrole=cluster-admin --serviceaccount=default:nfs-client-provisioner
 

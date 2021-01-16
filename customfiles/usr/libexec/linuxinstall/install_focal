@@ -36,6 +36,9 @@ netplan.io resolvconf ethtool openssh-client openssh-server net-tools inetutils-
 bind9-dnsutils bind9-host psmisc vim pciutils dkms vlan unicode-data gnupg git golang \
 apt-transport-https wget jq nfs-common ipvsadm caddy python3-pip"
 
+# Set timezone
+timedatectl set-timezone Europe/Copenhagen
+
 chroot /mnt pip3 install yq
 
 # Install kernel module for Realtek network card - the one in the distro does not compile with current kernel
