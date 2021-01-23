@@ -34,7 +34,7 @@ chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive apt -y install -y linux-imag
 chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive apt -y install -y netscript-2.4 \
 netplan.io resolvconf ethtool openssh-client openssh-server net-tools inetutils-tools curl \
 bind9-dnsutils bind9-host psmisc vim pciutils dkms vlan unicode-data gnupg git golang \
-apt-transport-https wget jq nfs-common ipvsadm caddy python3-pip"
+apt-transport-https wget jq nfs-common ipvsadm caddy python3-pip iputils-ping"
 
 # Set timezone
 timedatectl set-timezone Europe/Copenhagen

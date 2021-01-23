@@ -96,7 +96,9 @@ kubeadm init --pod-network-cidr=10.2.0.0/16 --control-plane-endpoint=kube.scienc
 
 # and do this in another shell...
 echo "cgroupDriver: systemd" >> /var/lib/kubelet/config.yaml
-sed -i -E 's|/usr/bin/kubelet$|/usr/bin/kubelet --cgroup-driver=systemd --runtime-cgroups=/systemd/system.slice --kubelet-cgroups=/systemd/system.slice|' \
+sed -i -E 's|/usr/bin/kubelet$|/usr/bin/kubelet --cgroup-driver=systemd \
+--runtime-cgroups=/systemd/system.slice --kubelet-cgroups=/systemd/system.slice \
+--experimental-allowed-unsafe-sysctls=net.ipv4.ping_group_range|' \
 /lib/systemd/system/kubelet.service
 
 # This is written to /etc/resolv.conf inside the containers, so to allow pods/containers to
@@ -106,6 +108,9 @@ sed -i "s|- 10.96.0.10|${dns_ips}|" /var/lib/kubelet/config.yaml
 
 # TODO: look into doing the above in a cleaner way - with a yaml file instead of command-line parameters, i.e.
 # kubeadm init --config=kubeadm-config.yaml
+
+# We don't need ipv6
+sed -i.bk '/.*1100:200::\/24.*/d' /etc/cni/net.d/100-crio-bridge.conf
 
 # Address Kubernetes bug
 # https://cloudblue.freshdesk.com/support/solutions/articles/44001886522-how-to-fix-failed-to-get-system-container-stats-on-k8s-service-node-
@@ -117,6 +122,26 @@ EOF
 
 systemctl daemon-reload
 systemctl restart kubelet
+
+### HTTP networking with ScienceData
+cat <<EOF>/etc/systemd/system/sciencedata_bridge.service
+[Unit]
+After=network.service
+[Service]
+ExecStart=/usr/local/sbin/sciencedata_bridge.sh
+[Install]
+WantedBy=default.target
+EOF
+cat <<EOF>/usr/local/sbin/sciencedata_bridge.sh
+ip link add link enp129s0f0 name enp129s0f0.300 type vlan id 300
+ip addr add 10.3.0.1/24 brd 10.3.0.255 dev enp129s0f0.300
+ip link set dev enp129s0f0.300 up
+ip addr add 10.2.0.254/16 dev enp129s0f0.300
+brctl addif cni0 enp129s0f0.300
+EOF
+chmod +x /usr/local/sbin/sciencedata_bridge.sh
+systemctl daemon-reload
+systemctl enable sciencedata_bridge.service
 
 ### Install dashboard
 
@@ -156,11 +181,16 @@ kubectl -n kube-public describe secret `kubectl -n kube-public get secret | grep
 
 # Paste it into the dashboard web interface on
 # http://127.0.0.1:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/
-s
-### Install NFS StorageClass
+
+### NFS networking with ScienceData
 git clone https://github.com/deic-dk/sciencedata_kubernetes.git
+# Don't think this is necessary
+#kubectl apply -f sciencedata_kubernetes/nfs_serviceaccount.yaml
+#kubectl create rolebinding nfs-admin --clusterrole=admin --serviceaccount=default:nfs-client-provisioner --namespace=default
+#kubectl create clusterrolebinding nfs-cluster-admin --clusterrole=cluster-admin --serviceaccount=default:nfs-client-provisioner
 
-kubectl apply -f sciencedata_kubernetes/nfs_serviceaccount.yaml
-kubectl create rolebinding nfs-admin --clusterrole=admin --serviceaccount=default:nfs-client-provisioner --namespace=default
-kubectl create clusterrolebinding nfs-cluster-admin --clusterrole=cluster-admin --serviceaccount=default:nfs-client-provisioner
-
+chmod +x /root/sciencedata_kubernetes/commands/*
+cd /usr/local/bin
+ln -s /root/sciencedata_kubernetes/commands/delete_pod 
+ln -s /root/sciencedata_kubernetes/commands/get_containers 
+ln -s /root/sciencedata_kubernetes/commands/run_pod 
