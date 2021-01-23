@@ -184,11 +184,6 @@ kubectl -n kube-public describe secret `kubectl -n kube-public get secret | grep
 
 ### NFS networking with ScienceData
 git clone https://github.com/deic-dk/sciencedata_kubernetes.git
-# Don't think this is necessary
-#kubectl apply -f sciencedata_kubernetes/nfs_serviceaccount.yaml
-#kubectl create rolebinding nfs-admin --clusterrole=admin --serviceaccount=default:nfs-client-provisioner --namespace=default
-#kubectl create clusterrolebinding nfs-cluster-admin --clusterrole=cluster-admin --serviceaccount=default:nfs-client-provisioner
-
 chmod +x /root/sciencedata_kubernetes/commands/*
 cd /usr/local/bin
 ln -s /root/sciencedata_kubernetes/commands/delete_pod 
