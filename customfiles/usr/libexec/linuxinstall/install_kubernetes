@@ -92,14 +92,19 @@ echo 'export KUBECONFIG=/etc/kubernetes/admin.conf' >> /root/.bashrc
 # So... add the above line manually with kubeadm running
 #kubeadm reset -f --cri-socket unix:///var/run/crio/crio.sock
 kubeadm init --pod-network-cidr=10.2.0.0/16 --control-plane-endpoint=kube.sciencedata.dk \
---cri-socket=unix:///var/run/crio/crio.sock # --apiserver-advertise-address=10.0.0.12
+--cri-socket=unix:///var/run/crio/crio.sock # CONFIGURE THIS # --node-ip=10.0.0.12 \
+# --apiserver-advertise-address=10.0.0.12
 
 # and do this in another shell...
 echo "cgroupDriver: systemd" >> /var/lib/kubelet/config.yaml
+# This seems to be overridden by /var/lib/kubelet/kubeadm-flags.env and /var/lib/kubelet/config.yaml
+# as defined in /etc/systemd/system/kubelet.service.d/*
 sed -i -E 's|/usr/bin/kubelet$|/usr/bin/kubelet --cgroup-driver=systemd \
 --runtime-cgroups=/systemd/system.slice --kubelet-cgroups=/systemd/system.slice \
 --experimental-allowed-unsafe-sysctls=net.ipv4.ping_group_range|' \
 /lib/systemd/system/kubelet.service
+
+echo "10.0.0.12	kube.sciencedata.dk" >> /etc/hosts
 
 # This is written to /etc/resolv.conf inside the containers, so to allow pods/containers to
 # use DNS this seems necessary. No idea why it is set to a service-cluster-ip-range address
@@ -109,8 +114,8 @@ sed -i "s|- 10.96.0.10|${dns_ips}|" /var/lib/kubelet/config.yaml
 # TODO: look into doing the above in a cleaner way - with a yaml file instead of command-line parameters, i.e.
 # kubeadm init --config=kubeadm-config.yaml
 
-# We don't need ipv6
-sed -i.bk '/.*1100:200::\/24.*/d' /etc/cni/net.d/100-crio-bridge.conf
+# We don't need ipv6 - well, removing this seems to break cni...
+# sed -i.bk '/.*1100:200::.*/d' /etc/cni/net.d/100-crio-bridge.conf
 
 # Address Kubernetes bug
 # https://cloudblue.freshdesk.com/support/solutions/articles/44001886522-how-to-fix-failed-to-get-system-container-stats-on-k8s-service-node-
@@ -127,21 +132,36 @@ systemctl restart kubelet
 cat <<EOF>/etc/systemd/system/sciencedata_bridge.service
 [Unit]
 After=network.service
+
 [Service]
+Type=forking
 ExecStart=/usr/local/sbin/sciencedata_bridge.sh
+ExecStop=/usr/local/sbin/sciencedata_bridge.sh
+
 [Install]
 WantedBy=default.target
 EOF
+
 cat <<EOF>/usr/local/sbin/sciencedata_bridge.sh
-ip link add link enp129s0f0 name enp129s0f0.300 type vlan id 300
-ip addr add 10.3.0.1/24 brd 10.3.0.255 dev enp129s0f0.300
-ip link set dev enp129s0f0.300 up
-ip addr add 10.2.0.254/16 dev enp129s0f0.300
-brctl addif cni0 enp129s0f0.300
+#!/bin/bash
+
+ip_num=`ip addr | grep 'inet 10.0.0' | awk '{print $2}' | sed 's|10\.0\.0\.||' | sed 's|/24||'`
+local_if=`ip route | grep 10.0.0.0/24 | awk '{print $3}'`
+
+if [ "\$1" == "-s" ];then
+	brctl delif cni0 vlan300
+	ip link delete vlan300
+else
+	ip link add link ${local_if} name vlan300 type vlan id 300
+	ip addr add 10.2.0.${ip_num}/16 dev vlan300
+	ip link set dev vlan300 up
+	brctl addif cni0 vlan300
+	iptables -I FORWARD -s 10.2.0.0/16 -d 10.0.0.0/24 -j DROP
+fi
 EOF
 chmod +x /usr/local/sbin/sciencedata_bridge.sh
 systemctl daemon-reload
-systemctl enable sciencedata_bridge.service
+systemctl enable sciencedata_bridge
 
 ### Install dashboard
 
