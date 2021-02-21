@@ -1,0 +1,11 @@
+#!/bin/bash
+
+chroot /mnt
+
+mkdir -p /usr/local/software
+cd /usr/local/software
+curl --insecure -OL https://fror%40dtu.dk@10.0.0.15/files/Science%20Cloud/kubefiles/WolframEngine.tar.gz
+curl --insecure -OL https://fror%40dtu.dk@10.0.0.15/files/Science%20Cloud/kubefiles/matlab.tar.gz
+tar -xzf WolframEngine.tar.gz
+tar -xzf matlab.tar.gz
+rm WolframEngine.tar.gz matlab.tar.gz
