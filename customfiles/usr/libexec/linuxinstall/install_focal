@@ -14,7 +14,7 @@ echo "deb http://dk.archive.ubuntu.com/ubuntu focal universe" >> /mnt/etc/apt/so
 chroot /mnt apt install -y debian-keyring debian-archive-keyring apt-transport-https
 chroot /mnt bash -c "curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/cfg/gpg/gpg.155B6D79CA56EA34.key' | apt-key add -"
 chroot /mnt bash -c "curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/cfg/setup/config.deb.txt?distro=debian&version=any-version' | sudo tee -a /etc/apt/sources.list.d/caddy-stable.list"
-
+chroot /mnt bash -c "setcap cap_net_bind_service=+ep /usr/bin/caddy"
 chroot /mnt apt update
 
 # Configure locale
@@ -39,6 +39,12 @@ duplicity zip unzip gcc-8 libxt6 autossh"
 
 chroot /mnt mkdir -p /var/www/.config/caddy
 chroot /mnt chown -R www-data.www-data /var/www
+
+curl https://raw.githubusercontent.com/caddyserver/dist/master/init/caddy.service | \
+  sed 's|Type=notify|Type=simple|' > /mnt/etc/systemd/system/caddy.service
+chmod 644 /mnt/etc/systemd/system/caddy.service
+chroot /mnt systemctl daemon-reload
+chroot /mnt systemctl enable caddy
 
 # Notice that matlab has to be installed by hand - with X available
 # Grab it from "Science Cloud/kubefiles"
