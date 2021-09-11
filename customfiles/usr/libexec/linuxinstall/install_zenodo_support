@@ -1,0 +1,108 @@
+#!/bin/bash
+
+chroot /mnt
+
+# This will be mounted onto /var/lib/postgresql in the db pod
+mkdir -p /usr/local/postgresql
+
+# We back it up to sciencedata every night
+
+mkdir -p /root/.config/rclone
+
+cat <<EOF > /root/.config/rclone/rclone.conf
+[sciencedata-storage-cloud]
+type = webdav
+url = https://sciencedata.dk
+vendor = other
+user = cloud
+pass = W4nxg78ibFW3IKJbiHs_AHWvXwnJxsMFEnWw
+EOF
+
+cat <<EOF > /usr/local/sbin/zenodo_backup.sh
+#!/bin/bash
+# Delete the db container
+kubectl scale --replicas=0 deployment/db
+rclone sync --transfers 1 /usr/local/postgresql sciencedata-storage-cloud:zenodo/postgresql
+# Fire up the db container again
+kubectl scale --replicas=1 deployment/db
+EOF
+
+cat <<EOF > /etc/cron.daily/zenodo
+/usr/local/sbin/zenodo_backup.sh
+EOF
+
+# Cronjob to point zenodo to the lb pod
+
+cat <<EOF > /usr/local/sbin/zenodo_host.sh
+#!/bin/bash
+
+lbip=`kubectl get services -o wide | grep -E '^lb ' | awk '{print $3}'`
+
+grep "$lbip" /etc/hosts >&/dev/null || sed -i -E "s|^[0-9\.]+\s+(zenodo)|$lbip\t\1|" /etc/hosts
+
+EOF
+
+cat <<EOF > /etc/cron.hourly/zenodo
+/usr/local/bin/zenodo_host.sh
+EOF
+
+chmod +x /usr/local/sbin/zenodo_host.sh /etc/cron.hourly/zenodo /usr/local/sbin/zenodo_backup.sh /etc/cron.daily/zenodo
+
+mkdir /etc/caddy
+cat <<EOF > /etc/caddy/Caddyfile
+{
+  auto_https disable_redirects
+  admin off
+}
+
+kube.sciencedata.dk:80 {
+
+	# Set this path to your site's directory.
+	root * /usr/share/caddy
+
+	# Enable the static file server.
+	file_server
+
+	# Another common task is to set up a reverse proxy:
+	# reverse_proxy localhost:8080
+
+	# Or serve a PHP site through php-fpm:
+	# php_fastcgi localhost:9000
+	php_fastcgi unix//run/php/php7.4-fpm.sock
+
+	# Refer to the Caddy docs for more information:
+	# https://caddyserver.com/docs/caddyfile
+
+	log {
+		output file /var/log/caddy.log
+	}
+}
+
+http://zenodo.sciencedata.dk {
+	redir https://zenodo.sciencedata.dk
+}
+
+http://zenodo.dk {
+	redir https://zenodo.sciencedata.dk
+}
+
+https://zenodo.dk {
+	redir https://zenodo.sciencedata.dk
+}
+
+
+https://zenodo.sciencedata.dk {
+	reverse_proxy {
+	transport http {
+		tls_insecure_skip_verify
+	}
+		#to http://10.96.199.151:5001
+		to https://zenodo
+	}
+	log {
+		output file /var/log/zenodo.log
+	}
+}
+EOF
+
+
