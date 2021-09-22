@@ -78,20 +78,27 @@ kube.sciencedata.dk:80 {
 	}
 }
 
-http://zenodo.sciencedata.dk {
-	redir https://zenodo.sciencedata.dk
+http://sciencerepository.sciencedata.dk {
+	redir https://sciencerepository.dk
 }
 
-http://zenodo.dk {
-	redir https://zenodo.sciencedata.dk
+http://repository.sciencedata.dk {
+	redir https://sciencerepository.dk
 }
 
-https://zenodo.dk {
-	redir https://zenodo.sciencedata.dk
+http://sciencerepository.dk {
+	redir https://sciencerepository.dk
 }
 
+https://sciencerepository.sciencedata.dk {
+	redir https://sciencerepository.dk
+}
 
-https://zenodo.sciencedata.dk {
+https://repository.sciencedata.dk {
+	redir https://sciencerepository.dk
+}
+
+https://sciencerepository.dk {
 	reverse_proxy {
 	transport http {
 		tls_insecure_skip_verify
