@@ -105,6 +105,7 @@ sed -i -E 's|/usr/bin/kubelet$|/usr/bin/kubelet --cgroup-driver=systemd \
 /lib/systemd/system/kubelet.service
 
 echo "10.0.0.12	kube.sciencedata.dk" >> /etc/hosts
+echo "10.0.0.13	sciencedata" >> /etc/hosts
 
 # This is written to /etc/resolv.conf inside the containers, so to allow pods/containers to
 # use DNS this seems necessary. No idea why it is set to a service-cluster-ip-range address
