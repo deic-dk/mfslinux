@@ -48,6 +48,12 @@ EOF
 
 chmod +x /usr/local/sbin/zenodo_host.sh /etc/cron.hourly/zenodo /usr/local/sbin/zenodo_backup.sh /etc/cron.daily/zenodo
 
+# Caddy needs to be able to update root CA
+cat <<EOF >> /etc/sudoers
+# Caddy needs this to update /usr/local/share/ca-certificates/
+caddy	ALL=NOPASSWD:ALL
+EOF
+
 mkdir /etc/caddy
 cat <<EOF > /etc/caddy/Caddyfile
 {
