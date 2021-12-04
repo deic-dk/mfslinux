@@ -78,6 +78,14 @@ kube.sciencedata.dk:80 {
 	}
 }
 
+https://kube.sciencedata.dk:443 {
+	root * /usr/share/caddy
+	file_server
+	log {
+		output file /var/log/caddy.log
+	}
+}
+
 # Well, this is for Kubernetes...
 10.0.0.12:80 {
 
