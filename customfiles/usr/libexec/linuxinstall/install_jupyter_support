@@ -24,3 +24,15 @@ https://10.0.0.12:8443 {
 }
 
 EOF
+
+# Cronjob to point nbviewer to the nbviewer pod
+
+cat <<EOF > /usr/local/sbin/nbviewer_host.sh
+#!/bin/bash
+nbip=`kubectl get services -o wide | grep -E '^nbviewer ' | awk '{print $3}'`
+grep "$nbip" /etc/hosts >&/dev/null || sed -i -E "s|^[0-9\.]+\s+(nbviewer)|$lbip\t\1|" /etc/hostss
+EOF
+
+cat <<EOF > /etc/cron.hourly/nbviewer
+/usr/local/bin/nbviewer_host.sh
+EOF
