@@ -23,6 +23,19 @@ https://10.0.0.12:8443 {
         }
 }
 
+https://sciencenotebooks.sciencedata.dk {
+	redir https://sciencenotebooks.dk
+}
+
+https://sciencenotebooks.dk {
+        reverse_proxy {
+                to http://nbviewer:8080
+        }
+        log {
+                output file /var/log/nbviewer.log
+        }
+}
+
 EOF
 
 # Cronjob to point nbviewer to the nbviewer pod
