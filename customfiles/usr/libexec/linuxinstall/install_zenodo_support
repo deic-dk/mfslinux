@@ -117,23 +117,23 @@ https://kube.sciencedata.dk:443 {
 }
 
 http://sciencerepository.sciencedata.dk {
-	redir https://sciencerepository.dk
+	redir https://sciencerepository.dk{uri}
 }
 
 http://repository.sciencedata.dk {
-	redir https://sciencerepository.dk
+	redir https://sciencerepository.dk{uri}
 }
 
 http://sciencerepository.dk {
-	redir https://sciencerepository.dk
+	redir https://sciencerepository.dk{uri}
 }
 
 https://sciencerepository.sciencedata.dk {
-	redir https://sciencerepository.dk
+	redir https://sciencerepository.dk{uri}
 }
 
 https://repository.sciencedata.dk {
-	redir https://sciencerepository.dk
+	redir https://sciencerepository.dk{uri}
 }
 
 https://sciencerepository.dk {

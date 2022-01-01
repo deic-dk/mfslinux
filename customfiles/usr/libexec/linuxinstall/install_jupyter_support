@@ -23,8 +23,16 @@ https://10.0.0.12:8443 {
         }
 }
 
+http://sciencenotebooks.sciencedata.dk {
+	redir https://sciencenotebooks.dk{uri}
+}
+
+http://sciencenotebooks.dk {
+	redir https://sciencenotebooks.dk{uri}
+}
+
 https://sciencenotebooks.sciencedata.dk {
-	redir https://sciencenotebooks.dk
+	redir https://sciencenotebooks.dk{uri}
 }
 
 https://sciencenotebooks.dk {
