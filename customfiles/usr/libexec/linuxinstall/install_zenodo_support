@@ -136,6 +136,24 @@ https://repository.sciencedata.dk {
 	redir https://sciencerepository.dk{uri}
 }
 
+https://repository.sciencedata.dk {
+	header content-security-policy
+ "connect-src 'self' https://sciencedata.dk https://*.sciencedata.dk"
+	header -referrer-policy
+	header -x-frame-options
+	header -strict-transport-security
+	reverse_proxy {
+	transport http {
+		tls_insecure_skip_verify
+	}
+		#to http://10.96.199.151:5001
+		to https://zenodo
+	}
+	log {
+		output file /var/log/zenodo.log
+	}
+}
+
 https://sciencerepository.dk {
 	reverse_proxy {
 	transport http {
