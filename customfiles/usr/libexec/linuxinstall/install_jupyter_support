@@ -57,3 +57,6 @@ EOF
 cat <<EOF > /etc/cron.hourly/nbviewer
 /usr/local/bin/nbviewer_host.sh
 EOF
+
+grep nbviewer /etc/hosts || echo "10.108.30.107	nbviewer" >> /etc/hosts
+

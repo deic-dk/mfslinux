@@ -46,7 +46,27 @@ cat <<EOF > /etc/cron.hourly/zenodo
 /usr/local/bin/zenodo_host.sh
 EOF
 
-chmod +x /usr/local/sbin/zenodo_host.sh /etc/cron.hourly/zenodo /usr/local/sbin/zenodo_backup.sh /etc/cron.daily/zenodo
+# Cronjob to point pgadmin to the pgadmin pod
+
+cat <<EOF > /usr/local/sbin/pgadmin_host.sh
+#!/bin/bash
+
+lbip=`kubectl get pods -o wide | grep -E '^pgadmin ' | awk '{print $6}'`
+
+grep "$lbip" /etc/hosts >&/dev/null || sed -i -E "s|^[0-9\.]+\s+(pgadmin)|$lbip\t\1|" /etc/hosts
+
+EOF
+
+cat <<EOF > /etc/cron.hourly/pgadmin
+/usr/local/bin/pgadmin_host.sh
+EOF
+
+
+chmod +x /usr/local/sbin/zenodo_host.sh /etc/cron.hourly/zenodo /usr/local/sbin/zenodo_backup.sh \
+/etc/cron.daily/zenodo /usr/local/bin/pgadmin_host.sh /etc/cron.hourly/pgadmin
+
+grep pgadmin /etc/hosts || echo "10.2.3.232	pgadmin" >> /etc/hosts
+grep zenodo /etc/hosts || echo "10.111.107.188	zenodo" >> /etc/hosts
 
 # Caddy needs to be able to update root CA
 cat <<EOF >> /etc/sudoers
@@ -143,9 +163,9 @@ https://repository.sciencedata.dk {
 	header -x-frame-options
 	header -strict-transport-security
 	reverse_proxy {
-	transport http {
-		tls_insecure_skip_verify
-	}
+		transport http {
+			tls_insecure_skip_verify
+		}
 		#to http://10.96.199.151:5001
 		to https://zenodo
 	}
@@ -156,9 +176,9 @@ https://repository.sciencedata.dk {
 
 https://sciencerepository.dk {
 	reverse_proxy {
-	transport http {
-		tls_insecure_skip_verify
-	}
+		transport http {
+			tls_insecure_skip_verify
+		}
 		#to http://10.96.199.151:5001
 		to https://zenodo
 	}
@@ -166,6 +186,47 @@ https://sciencerepository.dk {
 		output file /var/log/zenodo.log
 	}
 }
+
+https://kube.sciencedata.dk:8080 {
+	reverse_proxy {
+		to http://pgadmin:80
+	}
+	log {
+		output file /var/log/pgadmin.log
+	}
+	@blocked not remote_ip 130.225.245.245 87.73.109.19
+	respond @blocked "Nope" 403
+}
+
 EOF
 
+## Fill in email and password, start pgadmin pod with kubectl apply -f /root/pgadmin.yaml,
+## then visit https://kube.sciencedata.dk:9443/login and set DB host to "db", database to "zenodo", db user and password to "zenodo"
+
+cat <<EOF > /root/pgadmin.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pgadmin
+  labels:
+    app: pgadmin
+spec:
+  containers:
+  - name: pgadmin
+    image: dpage/pgadmin4
+    env:
+    - name: PGADMIN_DEFAULT_EMAIL
+      value: ""
+    - name: PGADMIN_DEFAULT_PASSWORD
+      value: ""
+    ports:
+      - containerPort: 80
+EOF
+
+touch /var/log/zenodo.log
+touch /var/log/nbviewer.log
+touch /var/log/pgadmin.log
+touch /var/log/caddy.log
+
+chown caddy /var/log/zenodo.log /var/log/nbviewer.log /var/log/pgadmin.log /var/log/caddy.log
 
