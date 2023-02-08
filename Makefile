@@ -1,11 +1,12 @@
 # mfslinux
 #
-# Copyright (c) 2020 Martin Matuska <mm at matuska dot org>
+# Copyright (c) 2022 Martin Matuska <mm at matuska dot de>
 #
-MFSLINUX_VERSION?=	0.1.7
+MFSLINUX_VERSION?=	0.1.10
 
 # Default Ubuntu version, override with e.g. make UBUNTU_RELEASE=bionic
-UBUNTU_RELEASE?=		"focal"
+#UBUNTU_RELEASE?=		"focal"
+UBUNTU_RELEASE?=		"jammy"
 
 GZIP?=		$(shell which gzip)
 MKDIR?=		$(shell which mkdir)
@@ -29,9 +30,9 @@ MKISOFS?=	$(shell which mkisofs || which genisoimage)
 LS?=		$(shell which ls)
 FILE?=		$(shell which file)
 BSDTAR?=	$(shell which bsdtar)
-UNAME_S := $(shell uname -s)
+BUILD_OS?=	$(shell uname)
 
-ifeq ($(UNAME_S),FreeBSD)
+ifeq ($(BUILD_OS),FreeBSD)
 WGET?=		$(shell which fetch)
 WGET_ARGS?=	-q
 OPKG_CL?=	$(shell which opkg-cl)
@@ -51,12 +52,14 @@ ISODIR?=	$(WRKDIR)/iso
 OPENWRT_ROOTDIR?=	$(WRKDIR)/openwrt_root
 OPENWRT_IMGDIR?=	$(WRKDIR)/openwrt_root_img
 
-OPENWRT_VERSION=	19.07.1
-OPENWRT_KERNEL_VERSION=	4.14.167
+#OPENWRT_VERSION=	21.02.2
+OPENWRT_VERSION=	22.03.3
+#OPENWRT_KERNEL_VERSION=	5.4.179
+OPENWRT_KERNEL_VERSION=	5.10.161
 OPENWRT_TARGET_URL=	https://downloads.openwrt.org/releases/$(OPENWRT_VERSION)/targets/x86/64/
 OPENWRT_PACKAGES_URL=	http://downloads.openwrt.org/releases/$(OPENWRT_VERSION)/packages/x86_64/
-OPENWRT_ROOTFS_TAR=	openwrt-$(OPENWRT_VERSION)-x86-64-generic-rootfs.tar.gz
-OPENWRT_KERNEL=		openwrt-$(OPENWRT_VERSION)-x86-64-vmlinuz
+OPENWRT_ROOTFS_TAR=	openwrt-$(OPENWRT_VERSION)-x86-64-rootfs.tar.gz
+OPENWRT_KERNEL=		openwrt-$(OPENWRT_VERSION)-x86-64-generic-kernel.bin
 
 OPENWRT_PACKAGES_REMOVE?=	$(CONFIGDIR)/openwrt_packages_remove
 OPENWRT_PACKAGES_ADD?=		$(CONFIGDIR)/openwrt_packages_add
@@ -72,7 +75,8 @@ ROOT_SHELL?=	/bin/bash
 
 GIT_REVISION=	$(shell $(GIT) rev-parse --short HEAD)
 
-OUTPUT_ISO?=	mfslinux-$(MFSLINUX_VERSION)-$(GIT_REVISION)-$(UBUNTU_RELEASE).iso
+#OUTPUT_ISO?=	mfslinux-$(MFSLINUX_VERSION)-$(GIT_REVISION).iso
+OUTPUT_ISO?=	mfslinux-$(MFSLINUX_VERSION)-$(UBUNTU_RELEASE).iso
 ARTIFACT?=	mfslinux.iso
 OUTPUT_ISO_LABEL?=	mfslinux
 
@@ -85,7 +89,7 @@ else
 endif
 
 OPKG_ENV=	env PATH="/usr/sbin:/usr/bin:/sbin:/bin"
-ifeq ($(UNAME_S),FreeBSD)
+ifeq ($(BUILD_OS),FreeBSD)
 OPKG_CHROOT=
 OPKG_PROG=	$(OPKG_CL)
 OPKG_ARGS=	--chroot $(OPENWRT_ROOTDIR) \
@@ -210,9 +214,9 @@ $(WRKDIR)/.add_packages_done:
 	fi; \
 	for PKG in $$PACKAGES_ADD; do \
 	PKGNAME=`basename $$PKG`; \
-	$(CP) $(DOWNLOADDIR)/$$PKGNAME $(OPENWRT_ROOTDIR)/tmp; \
+	$(CP) $(DOWNLOADDIR)/$$PKGNAME $(OPENWRT_ROOTDIR)/packages; \
 	$(OPKG_CHROOT) $(OPKG_ENV) $(OPKG_PROG) $(OPKG_ARGS) \
-		install /tmp/$$PKGNAME; \
+		install /packages/$$PKGNAME; \
 	done; \
 	$(RM) -rf $(OPENWRT_ROOTDIR)/packages
 	$(_v)$(TOUCH) $(WRKDIR)/.add_packages_done
@@ -222,9 +226,9 @@ $(WRKDIR)/.copy_configuration_files_done:
 	$(_v)echo "Coypying configuration files"
 	$(_v)for file in $(CONFIGFILES); do \
 	if [ -f $(CONFIGDIR)/$$file ]; then \
-		$(CP) -f $(CONFIGDIR)/$$file $(OPENWRT_ROOTDIR)/etc/config/$$file; \
+		$(CP) -f $(CONFIGDIR)/$$file $(WRKDIR)/openwrt_root/etc/config/$$file; \
 	elif [ -f $(CONFIGDIR)/default/$$file ]; then \
-		$(CP) -f $(CONFIGDIR)/default/$$file $(OPENWRT_ROOTDIR)/etc/config/$$file; \
+		$(CP) -f $(CONFIGDIR)/default/$$file $(WRKDIR)/openwrt_root/etc/config/$$file; \
 	else \
 		echo "Missing configuration file: $(CONFIGDIR)/$$file"; \
 		exit 1; \

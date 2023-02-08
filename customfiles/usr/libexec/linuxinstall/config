@@ -7,17 +7,31 @@ tftp_server_ip=`ip route | grep default | awk '{print $3}'`
 # Grab network configuration file if there
 atftp $tftp_server_ip -g -r /ubuntu/config/$mac/01-netcfg.yaml -l 01-netcfg.yaml
 
-# Public address
-IP_ADDRESS=`grep 'addresses: \[.*/.*\]' 01-netcfg.yaml | grep -v '\[10\.' | sed 's|^.*: \[||' | sed 's|/.*$||'`
+if [ -s "01-netcfg.yaml" ]; then
+	# Public address
+	IP_ADDRESS=`grep 'addresses: \[.*/.*\]' 01-netcfg.yaml | grep -v '\[10\.' | sed 's|^.*: \[||' | sed 's|/.*$||'`
+	# 10.0 address
+	IP_ADDRESS_PRIVATE=`grep 'addresses: \[.*/.*\]' 01-netcfg.yaml | grep '\[10\.' | sed 's|^.*: \[||' | sed 's|/.*$||'`
+	HOSTNAME_FQ=`host $IP_ADDRESS | awk '{print $NF}'`
+	HOSTNAME=`echo $HOSTNAME_FQ | sed 's|\..*$||g'`
+else
+	echo "No network configuration available via TFTP, using fallback."
+	echo "Please check /etc/netplan/01-netcfg.yaml and disable network configuration in /etc/rc.local"
+	atftp $tftp_server_ip -g -r /ubuntu/config/fallback/01-netcfg.yaml -l 01-netcfg.yaml
+	HOSTNAME=peon
+	
+cat <<EOF> /mnt/etc/rc.local
+#!/bin/bash
 
-# 10.0 address
-IP_ADDRESS_PRIVATE=`grep 'addresses: \[.*/.*\]' 01-netcfg.yaml | grep '\[10\.' | sed 's|^.*: \[||' | sed 's|/.*$||'`
+interface=\$(ls /sys/class/net | grep -v lo | head -1)
+sed -i "s|eth0|\$interface|" /etc/netplan/01-netcfg.yaml
+
+EOF
+
+	chmod +x /mnt/etc/rc.local
+fi
 
 mv 01-netcfg.yaml "/mnt/etc/netplan/"
-
-HOSTNAME_FQ=`host $IP_ADDRESS | awk '{print $NF}'`
-
-HOSTNAME=`echo $HOSTNAME_FQ | sed 's|\..*$||g'`
 
 echo $HOSTNAME > /mnt/etc/hostname
 

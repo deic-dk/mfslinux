@@ -1,19 +1,21 @@
 #!/bin/bash
 
 # Install base system
-ln -s /usr/share/debootstrap/scripts/gutsy /usr/share/debootstrap/scripts/focal
-debootstrap --verbose --arch amd64 focal /mnt http://dk.archive.ubuntu.com/ubuntu
+#ln -s /usr/share/debootstrap/scripts/gutsy /usr/share/debootstrap/scripts/jammy
+debootstrap --verbose --arch amd64 jammy /mnt http://dk.archive.ubuntu.com/ubuntu
 mount -t proc none /mnt/proc
 mount --rbind /sys /mnt/sys
 mount -o bind /dev /mnt/dev
 mount --bind /dev/pts /mnt/dev/pts
 
 # Add universe
-echo "deb http://dk.archive.ubuntu.com/ubuntu focal universe" >> /mnt/etc/apt/sources.list
+echo "deb http://dk.archive.ubuntu.com/ubuntu jammy universe" >> /mnt/etc/apt/sources.list
 # Add caddy
-chroot /mnt apt install -y debian-keyring debian-archive-keyring apt-transport-https
-chroot /mnt bash -c "curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/cfg/gpg/gpg.155B6D79CA56EA34.key' | apt-key add -"
-chroot /mnt bash -c "curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/cfg/setup/config.deb.txt?distro=debian&version=any-version' | sudo tee -a /etc/apt/sources.list.d/caddy-stable.list"
+chroot /mnt apt update
+chroot /mnt apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
+#chroot /mnt bash -c "curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/cfg/gpg/gpg.155B6D79CA56EA34.key' | apt-key add -"
+chroot /mnt bash -c "curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg"
+chroot /mnt bash -c "curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/cfg/setup/config.deb.txt?distro=debian&version=any-version' | tee -a /etc/apt/sources.list.d/caddy-stable.list"
 chroot /mnt bash -c "setcap cap_net_bind_service=+ep /usr/bin/caddy"
 chroot /mnt apt update
 
@@ -28,14 +30,15 @@ chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive apt -y install console-data"
 #chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive dpkg-reconfigure console-data"
 
 # Install the kernel
-chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive apt -y install -y linux-image-unsigned-5.4.0-26-generic"
+kernel=`chroot /mnt bash -c "apt search linux-image-unsigned | grep generic | awk -F / '{print \\$1}'"`
+chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive apt -y install -y $kernel"
 
 # Install packages
 chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive apt -y install -y netscript-2.4 \
-netplan.io resolvconf ethtool openssh-client openssh-server net-tools inetutils-tools curl \
+netplan.io resolvconf ethtool openssh-client openssh-server net-tools inetutils-tools \
 bind9-dnsutils bind9-host psmisc vim pciutils dkms vlan unicode-data gnupg git golang \
 apt-transport-https wget jq nfs-common ipvsadm caddy python3-pip iputils-ping php-cli php-fpm \
-duplicity zip unzip gcc-8 libxt6 autossh rclone"
+duplicity zip unzip gcc libxt6 autossh rclone"
 
 chroot /mnt mkdir -p /var/www/.config/caddy
 chroot /mnt chown -R www-data:www-data /var/www
@@ -50,23 +53,20 @@ chroot /mnt systemctl enable caddy
 # Grab it from "Science Cloud/kubefiles"
 
 # Set timezone
-timedatectl set-timezone Europe/Copenhagen
+chroot /mnt timedatectl set-timezone Europe/Copenhagen
 
-chroot /mnt pip3 install yq
+chroot /mnt pip install yq
 
 # Install kernel module for Realtek network card - the one in the distro does not compile with current kernel
 chroot /mnt bash -c "curl -LO http://archive.ubuntu.com/ubuntu/pool/universe/r/r8168/r8168-dkms_8.048.00-1ubuntu0.20.04.2_all.deb"
 chroot /mnt bash -c "ln -s /proc/self/fd /dev/fd"
-chroot /mnt bash -c "dpkg -i r8168-dkms_8.048.00-1ubuntu0.20.04.1_all.deb"
+chroot /mnt bash -c "dpkg -i r8168-dkms_8.048.00-1ubuntu0.20.04.2_all.deb"
 
 echo "8021q" >> /mnt/etc/modules
 
 # Modules needed by kubernetes
 echo "br_netfilter" >> /mnt/etc/modules
 echo "overlay" >> /mnt/etc/modules
-
-# Get rid of annoying warning when the group netdev does not exist (created by network manager)
-sed -i 's|netdev|users|' /mnt/usr/lib/udev/rules.d/85-netscript.rules
 
 # Create default network configuration
 mkdir /mnt/etc/netplan 2>/dev/null
@@ -81,7 +81,11 @@ EOF
 echo "ENABLED=1" >> /mnt/etc/default/netplan
 
 # Install grub
+disks=`ls /dev | grep -E 'sd[^0-9]$' | head -2`
+nvmes=`ls /dev | grep -E 'nvme0n[0-9]$' | head -2`
+firstdisk=`echo ${nvmes[0]} ${disks[0]} | head -1`
+
 sed -i 's|quiet splash||' /mnt/etc/default/grub
-chroot /mnt grub-install /dev/sda
+chroot /mnt grub-install /dev/$firstdisk
 chroot /mnt update-grub
 

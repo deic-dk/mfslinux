@@ -2,8 +2,10 @@
 
 # Use the first two disks found
 disks=`ls /dev | grep -E 'sd[^0-9]$' | head -2`
-numdisks=`echo $disks | wc -w`
-firstdisk=`echo "${disks[0]}" | head -1`
+nvmes=`ls /dev | grep -E 'nvme0n[0-9]$' | head -2`
+
+numdisks=`echo $disks $nvmes| wc -w`
+firstdisk=`echo ${nvmes[0]} ${disks[0]} | head -1`
 
 root_part_label=ROOT
 swap_part_label=SWAP
@@ -11,7 +13,13 @@ swap_part_label=SWAP
 tmp_root_part_label=$root_part_label
 tmp_swap_part_label=$swap_part_label
 
-for disk in $disks; do
+for disk in $nvmes $disks; do
+
+	p=""
+	echo $disk | grep nvme >& /dev/null
+	if [ "$?" -eq 0 ]; then
+		p="p"
+	fi
 
 	# Destroy any existing partitions
 	dd if=/dev/zero of=/dev/$disk bs=4M count=1
@@ -25,14 +33,19 @@ for disk in $disks; do
 	
 	# Create swap partition
 	sgdisk -n 0::+16G -t 0:8200 -c 0:$tmp_swap_part_label /dev/${disk}
-	mkswap /dev/${disk}2
+	mkswap /dev/${disk}${p}2
 	
 	# Create partition for /
 	sgdisk -n 0 -c 0:$tmp_root_part_label /dev/${disk}
 	
 	# Format the root partition
-	echo y | mkfs.ext4 /dev/${disk}3
+	echo y | mkfs.ext4 /dev/${disk}${p}3
 	
+	# Make sure partitions are labelled
+	tune2fs -L $tmp_swap_part_label /dev/${disk}${p}2
+	echo tune2fs -L $tmp_root_part_label /dev/${disk}${p}3
+	tune2fs -L $tmp_root_part_label /dev/${disk}${p}3
+
 	# Make sure partitions on backup disk have different labels
 	tmp_swap_part_label=${swap_part_label}_bk
 	tmp_root_part_label=${tmp_root_part_label}_bk
@@ -40,9 +53,10 @@ for disk in $disks; do
 done
 
 # Mount active system partition at /mnt
-mount -t ext4 /dev/${firstdisk}3 /mnt
+echo mount -t ext4 /dev/${firstdisk}${p}3 /mnt
+mount -t ext4 /dev/${firstdisk}${p}3 /mnt
 
-# Add entries to fstab 
+# Add entries to fstab
 mkdir /mnt/etc
 echo "# Device Mountpoint FStype Options Dump Pass#" > /mnt/etc/fstab
 echo "PARTLABEL=$swap_part_label none swap sw 0 0" >> /mnt/etc/fstab
@@ -51,11 +65,17 @@ echo "proc /proc proc defaults 0 0" >> /mnt/etc/fstab
 
 if [ $numdisks -gt 1 ]; then
 
-	seconddisk=`echo "${disks[0]}" | head -2 | tail -1`
+	seconddisk=`echo "${nvmes[0]} ${disks[0]}" | head -2 | tail -1`
+	
+	p=""
+	echo $seconddisk | grep nvme >& /dev/null
+	if [ "$?" -eq 0 ]; then
+		p="p"
+	fi
 
 	# Mount backup system partition at /bk
 	mkdir /bk
-	mount -t ext4 /dev/${seconddisk}3 /bk
+	mount -t ext4 /dev/${seconddisk}${p}3 /bk
 
 	# Add entries to fstab backup $PATH_FSTAB
 	mkdir /bk/etc
