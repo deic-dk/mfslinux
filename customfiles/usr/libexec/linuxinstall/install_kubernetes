@@ -1,77 +1,262 @@
 #!/bin/bash
 
-chroot /mnt
+export NODETYPE="$1"
+
+export ADMIN_IP=10.0.0.1
+# Set this to get an entry in /etc/hosts
+#export SCIENCEDATA_INTERNAL_IP=10.0.0.13
+
+# Are we installing a master
+if [ "$NODETYPE" == "master" ]; then
+	echo "Installing master"
+# If not, we should be able to get a join script from the master
+elif [ "$NODETYPE" == "control-plane" ]; then
+	echo "Installing control-plane node"
+elif [ "$NODETYPE" == "worker" ]; then
+	echo "Installing worker node"
+else
+	echo "You have to specify the type of node you're installing: install_kubernetes [master|control-plane|worker]"
+	exit 1
+fi
+
+# To run on an installed host, comment out the two lines below
+
+
+# Check if we're already in chroot
+if [ "$(stat -c %d:%i /)" != "$(stat -c %d:%i /proc/1/root/.)" ]; then
+	echo "We are already chrooted - probably being called from another install script."
+	export IN_CHROOT=1
+else
+	# Check if we're being called from mfslinux
+	if [ -e /usr/libexec/linuxinstall ] && grep /mnt /proc/mounts >& /dev/null; then
+		echo "We're called manually from mfslinux and will chroot"
+		export INSTALL_DIR=/mnt
+		export CHROOT=chroot
+	else
+		echo "We're called manually on an installed system. NOT chroot'ing"
+		$CHROOT $INSTALL_DIR timedatectl set-timezone Europe/Copenhagen
+	fi
+fi
+
+export MY_HOSTNAME=`cat $INSTALL_DIR/etc/hostname`
+
+# If this box has a static IP, grab the internal IP from the netplan config
+export MY_INTERNAL_IP=`cat /etc/netplan/01-netcfg.yaml | yq -r '.network.ethernets | map_values(select(.addresses[0] | startswith("10.0.0."))) | to_entries | .[0].value.addresses[0]' | sed -r 's|/[0-9]+$||'`
+# Otherwise assume one network interface
+if [ -z "$MY_INTERNAL_IP" ]; then
+	export MY_INTERNAL_IP=`ifconfig | grep 'inet ' | grep -v 127 | head -1 | awk '{print $2}' | sed -E 's|:.*$||'`
+fi
+
+export MY_INTERNAL_IP_NUM=`echo $MY_INTERNAL_IP | sed -E 's|10\.0\.[0-9]+\.||'`
 
 # Swapoff
-swapoff -a
-sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
-# The above has no effect. We hack for now...
-# This also has no effect with systemd
-echo '@reboot sudo swapoff -a' >> /etc/crontab
-# This has
-systemctl stop `systemctl list-unit-files | grep \.swap | awk '{print $1}'`
-systemctl mask `systemctl list-unit-files | grep \.swap | awk '{print $1}'`
+$CHROOT $INSTALL_DIR swapoff -a
+sed -Ei 's|^(PARTLABEL=SWAP)|#\1|' $INSTALL_DIR/etc/fstab
+echo 'swapoff -a' >> $INSTALL_DIR/etc/rc.local
+unit_files=`$CHROOT $INSTALL_DIR systemctl list-unit-files | grep \.swap | awk '{print $1}'`
+if [ -n "$unit_files" ]; then
+	$CHROOT $INSTALL_DIR systemctl stop $unit_files
+	$CHROOT $INSTALL_DIR systemctl mask $unit_files
+	$CHROOT $INSTALL_DIR systemctl daemon-reload
+fi
 
 # Add the google cloud package and opensuse repositories
-curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
-echo "deb https://apt.kubernetes.io/ kubernetes-xenial main" | tee /etc/apt/sources.list.d/kubernetes.list
-. /etc/os-release
-sh -c "echo 'deb http://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/x${NAME}_${VERSION_ID}/ /' > /etc/apt/sources.list.d/devel:kubic:libcontainers:stable.list"
-wget -nv https://download.opensuse.org/repositories/devel:kubic:libcontainers:stable/x${NAME}_${VERSION_ID}/Release.key -O- | apt-key add -
 
-echo 'deb http://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable:/cri-o:/1.19/xUbuntu_20.04/ /' | sudo tee /etc/apt/sources.list.d/devel:kubic:libcontainers:stable:cri-o:1.19.list
-curl -fsSL https://download.opensuse.org/repositories/devel:kubic:libcontainers:stable:cri-o:1.19/xUbuntu_20.04/Release.key | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/devel_kubic_libcontainers_stable_cri-o_1.19.gpg > /dev/null
+$CHROOT $INSTALL_DIR bash -c "curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -"
 
-# Install components
-apt update
-apt install -y kubelet kubeadm kubectl cri-o cri-o-runc cri-tools skopeo
+echo "deb https://apt.kubernetes.io/ kubernetes-xenial main" > $INSTALL_DIR/etc/apt/sources.list.d/kubernetes.list
+
+. $INSTALL_DIR/etc/os-release
+echo "deb http://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/x${NAME}_${VERSION_ID}/ /" \
+> $INSTALL_DIR/etc/apt/sources.list.d/devel:kubic:libcontainers:stable.list
+
+$CHROOT $INSTALL_DIR bash -c "curl -L https://download.opensuse.org/repositories/devel:kubic:libcontainers:stable/x${NAME}_${VERSION_ID}/Release.key | apt-key add -"
+
+echo "deb http://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable:/cri-o:/1.24/xUbuntu_${VERSION_ID}/ /" > \
+$INSTALL_DIR/etc/apt/sources.list.d/devel:kubic:libcontainers:stable:cri-o:1.24.list
+
+$CHROOT $INSTALL_DIR bash -c "curl -fsSL https://download.opensuse.org/repositories/devel:kubic:libcontainers:stable:cri-o:1.24/xUbuntu_${VERSION_ID}/Release.key | gpg --dearmor > /etc/apt/trusted.gpg.d/devel_kubic_libcontainers_stable_cri-o_1.24.gpg"
+
+# Kubernetes needs this
+$CHROOT $INSTALL_DIR bash -c "echo '1' > /proc/sys/net/bridge/bridge-nf-call-iptables"
+
+$CHROOT $INSTALL_DIR apt update
+
+$CHROOT $INSTALL_DIR apt install -y libnss-resolve cri-o cri-o-runc cri-tools skopeo kubeadm kubectl
 
 # This bug is no longer present
-#sed -i 's|/usr/lib/cri-o-runc/sbin/runc|/usr/sbin/runc|' /etc/crio/crio.conf.d/01-crio-runc.conf
+#sed -i 's|/usr/lib/cri-o-runc/sbin/runc|/usr/sbin/runc|' $INSTALL_DIR/etc/crio/crio.conf.d/01-crio-runc.conf
 
 # If we want to hold the version
-#apt-mark hold kubelet kubeadm kubectl cri-o cri-o-runc
+#$CHROOT $INSTALL_DIR apt-mark hold kubelet kubeadm kubectl cri-o cri-o-runc
 
 # Fix Ubuntu issues - apparently no longer needed
-#sed -i 's|/var/run/dbus/system_bus_socket|/run/dbus/system_bus_socket|' /lib/systemd/system/dbus.socket
-#chmod go+r /lib/systemd/system/kubelet.service
-#echo "DefaultCPUAccounting=yes" >> /etc/systemd/system.conf
+#sed -i 's|/var/run/dbus/system_bus_socket|/run/dbus/system_bus_socket|' $INSTALL_DIR/lib/systemd/system/dbus.socket
+#$CHROOT $INSTALL_DIR chmod go+r /lib/systemd/system/kubelet.service
+#echo "DefaultCPUAccounting=yes" >> $INSTALL_DIR/etc/systemd/system.conf
 
 # Networking
-modprobe overlay
-modprobe br_netfilter
-cat >> /etc/sysctl.d/99-kubernetes-cri.conf <<EOF
+# This is necessary for crio to work.
+$CHROOT $INSTALL_DIR modprobe br_netfilter
+if [ -z "$CHROOT" ]; then
+	$CHROOT $INSTALL_DIR modprobe overlay
+fi
+
+cat <<EOF> $INSTALL_DIR/etc/modules-load.d/crio.conf
+overlay
+br_netfilter
+EOF
+
+cat <<EOF> $INSTALL_DIR/etc/sysctl.d/99-kubernetes-cri.conf 
 net.bridge.bridge-nf-call-iptables  = 1
 net.ipv4.ip_forward                 = 1
 net.bridge.bridge-nf-call-ip6tables = 1
 EOF
 
-# IP forwarding
-echo '1' > /proc/sys/net/ipv4/ip_forward
-# Pass bridged packets through iptables
-echo '1' > /proc/sys/net/bridge/bridge-nf-call-iptables
-echo '1' > /proc/sys/net/bridge/bridge-nf-call-ip6tables
-# Make permanent
-sed -i 's|^#net.ipv4.ip_forward=1|net.ipv4.ip_forward=1|' /etc/sysctl.conf
-echo 'net.bridge.bridge-nf-call-iptables=1' >> /etc/sysctl.conf
-echo 'net.bridge.bridge-nf-call-ip6tables=1' >> /etc/sysctl.conf
-# Have crio use 10.2.0.0 for pods instead of the default 10.85.0.0.
-sed -i 's|10.85.0.0/16|10.2.0.0/16|' /etc/cni/net.d/100-crio-bridge.conf
+# Add Docker registry
+cat <<EOF> $INSTALL_DIR/etc/containers/registries.conf.d/00-unqualified-search-registries.conf 
+unqualified-search-registries = ["docker.io"]
+EOF
+cat <<EOF> $INSTALL_DIR/etc/containers/registries.conf.d/01-registries.conf 
+[[registry]]
+location = "docker.io"
+EOF
 
-sysctl -p
-sudo sysctl --system
+# IP forwarding
+# Make permanent
+sed -i 's|^#net.ipv4.ip_forward=1|net.ipv4.ip_forward=1|' $INSTALL_DIR/etc/sysctl.conf
+echo 'net.bridge.bridge-nf-call-iptables=1' >> $INSTALL_DIR/etc/sysctl.conf
+echo 'net.bridge.bridge-nf-call-ip6tables=1' >> $INSTALL_DIR/etc/sysctl.conf
+# Have crio use 10.2.0.0/16 for pods instead of the default 10.85.0.0/16.
+sed -i "s|\"subnet\": \"10.85.0.0/16\"|\"subnet\": \"10.2.0.0/16\", \"gateway\": \"10.2.$MY_INTERNAL_IP_NUM.1\"|" $INSTALL_DIR/etc/cni/net.d/100-crio-bridge.conf
+sed -i 's|"isGateway": true|"isGateway": false|' $INSTALL_DIR/etc/cni/net.d/100-crio-bridge.conf
+# This is necessary for crio to work.
+echo '1' > $INSTALL_DIR/proc/sys/net/ipv4/ip_forward
+# Pass bridged packets through iptables
+echo '1' > $INSTALL_DIR/proc/sys/net/bridge/bridge-nf-call-iptables
+echo '1' > $INSTALL_DIR/proc/sys/net/bridge/bridge-nf-call-ip6tables
+$CHROOT $INSTALL_DIR sysctl -p
+$CHROOT $INSTALL_DIR sysctl --system
 
 # Ubuntu 20.40 fix - see https://bugs.launchpad.net/ubuntu/+source/ifupdown/+bug/1874515
-sed -i -E "s|^(# Finally we destroy the interface)|  brctl addbr br_nat_ext\n\n\1|" /lib/bridge-utils/ifupdown.sh
+sed -i -E "s|^(# Finally we destroy the interface)|  brctl addbr br_nat_ext\n\n\1|" $INSTALL_DIR/lib/bridge-utils/ifupdown.sh
 
-systemctl enable crio
-systemctl start crio.service
+[ -n "$MY_HOSTNAME" ] && echo "$MY_INTERNAL_IP	$MY_HOSTNAME" >> $INSTALL_DIR/etc/hosts
+[ -n "$SCIENCEDATA_INTERNAL_IP" ] && echo "$SCIENCEDATA_INTERNAL_IP	sciencedata" >> $INSTALL_DIR/etc/hosts
+
+$CHROOT $INSTALL_DIR systemctl enable crio
+if [ -z "$CHROOT" -a -z "$IN_CHROOT" ]; then
+	systemctl start crio.service
+else
+	$CHROOT $INSTALL_DIR crio >&/dev/null &
+fi
+
+### Internal HTTP networking with ScienceData ###
+
+# Create vlan300 interface and give it a 10.2.0 address
+# NOTICE that the bridge cni0 will not have been created on a fresh
+# worker installation. It will be created after the first pod has
+# been started on the given worker. Then sciencedata_bridge.sh
+# should be run again (or the node rebooted).
+cat <<"EOF">$INSTALL_DIR/usr/local/sbin/sciencedata_bridge.sh
+#!/bin/bash
+
+# This only works if the network is actually up
+#ip_num=`ip addr | grep 'inet 10.0.0' | awk '{print $2}' | sed 's|10\.0\.0\.||'`
+#local_if=`ip route | grep 10.0.0.0/24 | awk '{print $3}'`
+
+ip_num=`grep "$HOSTNAME" /etc/hosts | awk '{print $1}' | sed -E 's|10\.0\.[0-9]+\.||'`
+# First try to grab interface assigned 10.0. address from netplan config file
+local_if=`cat /etc/netplan/01-netcfg.yaml | yq -r '.network.ethernets | map_values(select(.addresses[0] | startswith("10.0."))) | to_entries | .[0].key'`
+# If not there, just grab first interface
+if [ -z "$local_if" ]; then
+	local_if=`cat /etc/netplan/01-netcfg.yaml | yq -r '.network.ethernets | to_entries | .[0].key'`
+fi
+
+if [ "$1" == "-s" ];then
+	ip addr del 10.2.${ip_num}.1/16 dev cni0
+	ip route del 10.2.0.0/16 via 10.2.${ip_num}.1 dev cni0 proto static
+	brctl delif cni0 vlan300
+	ip link del vlan300
+	iptables -D INPUT -s 10.2.0.0/16 -d 10.0.0.65/32 -p tcp ! --dport 22 -j ACCEPT
+	iptables -D INPUT -s 10.2.0.0/16 -d 10.0.0.${ip_num}/32 -p tcp ! --dport 22 -j ACCEPT
+	iptables -D INPUT -s 10.2.0.0/16 -d 10.0.0.0/16 -j DROP
+	iptables -D FORWARD -s 10.2.0.0/16 -d 10.0.0.0/16 -j DROP
+	iptables -t nat -D POSTROUTING -s 10.2.0.0/16  ! -d 10.2.0.0/16 -j MASQUERADE
+	iptables -t nat -D POSTROUTING -s 10.0.0.0/16  ! -d 10.0.0.0/16 -j MASQUERADE
+else
+	# Create vlan300 interface
+	ip link add link ${local_if} vlan300 type vlan id 300
+	ip addr add 10.2.0.${ip_num}/16 dev vlan300
+	ip link set dev vlan300 up
+	# Wait max 20 seconds for cni0 to be up
+	i=0
+	until [ $i -eq 5 ] || ifconfig cni0; do
+		echo $(( i++ ))
+		sleep 4
+	done
+	# Bridge cni0 to vlan300
+	brctl addif cni0 vlan300
+	# use cni0 as local gateway for vlan300
+	ip addr add 10.2.${ip_num}.1/16 dev cni0
+	ip route add 10.2.0.0/16 via 10.2.${ip_num}.1 dev cni0 proto static
+	# Allow coredns to reach admin ip
+	iptables -D INPUT -s 10.2.0.0/16 -d 10.0.0.65/32 -p tcp ! --dport 22 -j ACCEPT
+	iptables -I INPUT -s 10.2.0.0/16 -d 10.0.0.65/32 -p tcp ! --dport 22 -j ACCEPT
+	iptables -D INPUT -s 10.2.0.0/16 -d 10.0.0.${ip_num}/32 -p tcp ! --dport 22 -j ACCEPT
+	iptables -I INPUT -s 10.2.0.0/16 -d 10.0.0.${ip_num}/32 -p tcp ! --dport 22 -j ACCEPT
+	# Disallow traffic from pods to admin net
+	iptables -D INPUT -s 10.2.0.0/16 -d 10.0.0.0/16 -j DROP
+	iptables -A INPUT -s 10.2.0.0/16 -d 10.0.0.0/16 -j DROP
+	iptables -D FORWARD -s 10.2.0.0/16 -d 10.0.0.0/16 -j DROP
+	iptables -A FORWARD -s 10.2.0.0/16 -d 10.0.0.0/16 -j DROP
+	# Allow pods to use the local cni0 as gateway
+	iptables -t nat -D POSTROUTING -s 10.2.0.0/16  ! -d 10.2.0.0/16 -j MASQUERADE
+	iptables -t nat -A POSTROUTING -s 10.2.0.0/16  ! -d 10.2.0.0/16 -j MASQUERADE
+	# Allow worker nodes to use master as gateway
+	iptables -t nat -D POSTROUTING -s 10.0.0.0/16  ! -d 10.0.0.0/16 -j MASQUERADE
+	iptables -t nat -A POSTROUTING -s 10.0.0.0/16  ! -d 10.0.0.0/16 -j MASQUERADE
+	# Dunno where these come from, but they obstruct things...
+	ip route del 1.1.1.1 via 10.0.0.1
+	ip route del 10.0.0.1
+	ip route del 10.2.0.0/16 dev vlan300
+	
+fi
+EOF
+
+chmod +x $INSTALL_DIR/usr/local/sbin/sciencedata_bridge.sh
+
+cat <<EOF>$INSTALL_DIR/etc/systemd/system/sciencedata_bridge.service
+[Unit]
+After=kubelet.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/sciencedata_bridge.sh
+
+[Install]
+WantedBy=default.target
+EOF
+
+$CHROOT $INSTALL_DIR systemctl daemon-reload
+$CHROOT $INSTALL_DIR systemctl enable sciencedata_bridge
+if [ -z "$CHROOT" -a -z "$IN_CHROOT" ]; then
+	systemctl start sciencedata_bridge
+else
+	$CHROOT $INSTALL_DIR /usr/local/sbin/sciencedata_bridge.sh
+fi
+
+#########################
+# kubeadm
+#########################
 
 # Necessary for kubctl to use port 6443 instead of 8080...
-echo 'export KUBECONFIG=/etc/kubernetes/admin.conf' >> /root/.bashrc
+echo 'export KUBECONFIG=/etc/kubernetes/admin.conf' >> $INSTALL_DIR/root/.bashrc
+# In case we're running a normal install outside chroot
+export KUBECONFIG=/etc/kubernetes/admin.conf
 
 # Apparently /etc/default/kubelet and/or KUBELET_EXTRA_ARGS is not used in this version
-#cat <<EOF | tee /etc/default/kubelet
+#cat <<EOF | tee $INSTALL_DIR/etc/default/kubelet
 #KUBELET_EXTRA_ARGS=--feature-gates="AllAlpha=false,RunAsGroup=true" \
 #--container-runtime=remote \
 #--cgroup-driver=systemd \
@@ -84,129 +269,197 @@ echo 'export KUBECONFIG=/etc/kubernetes/admin.conf' >> /root/.bashrc
 #	--container-runtime=remote \\\
 #	--cgroup-driver=systemd \\\
 #	--container-runtime-endpoint=unix:///var/run/crio/crio.sock \\\
-#	--runtime-request-timeout=1m|' /lib/systemd/system/kubelet.service
+#	--runtime-request-timeout=1m|' $INSTALL_DIR/lib/systemd/system/kubelet.service
 
 # This does not work because it creates an /etc/kubernetes/kubelet.conf w/o "cgroupDriver: systemd"
 # But it creates manifests etc.
 
 # So... add the above line manually with kubeadm running
-#kubeadm reset -f --cri-socket unix:///var/run/crio/crio.sock
-kubeadm init --pod-network-cidr=10.2.0.0/16 --control-plane-endpoint=kube.sciencedata.dk \
---cri-socket=unix:///var/run/crio/crio.sock # CONFIGURE THIS # --node-ip=10.0.0.12 \
-# --apiserver-advertise-address=10.0.0.12
+##$CHROOT $INSTALL_DIR kubeadm reset -f --cri-socket unix:///var/run/crio/crio.sock
 
-# and do this in another shell...
-echo "cgroupDriver: systemd" >> /var/lib/kubelet/config.yaml
-# This seems to be overridden by /var/lib/kubelet/kubeadm-flags.env and /var/lib/kubelet/config.yaml
-# as defined in /etc/systemd/system/kubelet.service.d/*
-sed -i -E 's|/usr/bin/kubelet$|/usr/bin/kubelet --cgroup-driver=systemd \
---runtime-cgroups=/systemd/system.slice --kubelet-cgroups=/systemd/system.slice \
---experimental-allowed-unsafe-sysctls=net.ipv4.ping_group_range|' \
-/lib/systemd/system/kubelet.service
+# Kubernetes needs this. And it's apparently been reset by some of the above
+$CHROOT $INSTALL_DIR bash -c "echo '1' > /proc/sys/net/bridge/bridge-nf-call-iptables"
+# Well, seems to be disabled by netscript
+$CHROOT $INSTALL_DIR systemctl disable netscript
 
-echo "10.0.0.12	kube.sciencedata.dk" >> /etc/hosts
-echo "10.0.0.13	sciencedata" >> /etc/hosts
+if [ "$NODETYPE" == "master" ]; then
+	echo '1' > /proc/sys/net/bridge/bridge-nf-call-iptables
+	# Initialize
+	# Notice that we do not use --service-cidr=10.0.0.0/24 because that would case the default kubernetes service
+	# to have endpoint 10.0.0.1:443 - see https://networkop.co.uk/post/2020-06-kubernetes-default/
+	# With --service-cidr=10.0.0.64/26 will get the endpoint 10.0.0.65:443 - and for kube-dns 10.0.0.74.
+	test `cat $INSTALL_DIR/proc/sys/net/bridge/bridge-nf-call-iptables` -eq 1 || { echo "you need bridge-nf-call-iptables" >&2 && exit 1; }
+	$CHROOT $INSTALL_DIR kubeadm init --service-cidr=10.0.0.64/26 --pod-network-cidr=10.2.0.0/16 --control-plane-endpoint=$MY_HOSTNAME \
+	--cri-socket=unix:///var/run/crio/crio.sock --apiserver-advertise-address=$MY_INTERNAL_IP 2>&1 | \
+	tee init.log
+	
+	thisdate=`date +%Y-%m-%d`
+
+	# Keep the join commands to add workers and control-plane nodes.
+	tail -2 init.log > join_worker.sh
+	cp join_worker.sh join_control_plane_node.sh
+	sed -i -E "s|(sha256:.*)|\1 --control-plane|" join_control_plane_node.sh
+	chmod +x join_worker.sh join_control_plane_node.sh
+	
+	# Upload join scripts to admin server
+	atftp $ADMIN_IP -g -r /kubernetes/join_worker.sh -l join_worker_x.sh
+	if [ -s "join_worker_x.sh" ]; then
+		echo "join_control_plane_node.sh already exists on server, uploading new one as join_worker-$thisdate.sh" >&2
+		echo "join_control_plane_node.sh already exists on server, uploading new one as join_control_plane_node-$thisdate.sh" >&2
+		atftp $ADMIN_IP -p -l join_worker.sh -r /kubernetes/join_worker-$thisdate.sh
+		atftp $ADMIN_IP -p -l join_control_plane_node.sh -r /kubernetes/join_control_plane_node-$thisdate.sh
+		atftp $ADMIN_IP -p -l $INSTALL_DIR/etc/kubernetes/admin.conf -r /kubernetes/admin-$thisdate.conf
+		atftp $ADMIN_IP -p -l $INSTALL_DIR/etc/hosts -r /kubernetes/hosts-$thisdate
+	else
+		echo "uploading join_worker.sh, join_control_plane_node.sh, admin.conf and hosts" >&2
+		atftp $ADMIN_IP -p -l join_worker.sh -r /kubernetes/join_worker.sh
+		atftp $ADMIN_IP -p -l join_control_plane_node.sh -r /kubernetes/join_control_plane_node.sh
+		atftp $ADMIN_IP -p -l $INSTALL_DIR/etc/kubernetes/admin.conf -r /kubernetes/admin.conf
+		atftp $ADMIN_IP -p -l $INSTALL_DIR/etc/hosts -r /kubernetes/hosts
+	fi
+	rm join_worker_x.sh
+	
+	# Give dns time to start
+	systemctl restart kubelet
+	sleep 10
+	# No idea why this is necessary
+	# https://slack-archive.rancher.com/t/10289479/hi-since-a-few-hours-ago-my-dns-in-k3s-stopped-working-nobod
+	kubectl --namespace=kube-system rollout restart deploy/coredns
+	
+	# Allow the master to run pods, do
+	# kubectl taint node `hostname` node-role.kubernetes.io/control-plane:NoSchedule-
+	# To reinstate the ban, just do the same w/o the minus at the end
+	
+fi
+
+## and do this in another shell... EDIT: Apparently no longer necessary
+#echo "cgroupDriver: systemd" >> $INSTALL_DIR/var/lib/kubelet/config.yaml
+## This seems to be overridden by /var/lib/kubelet/kubeadm-flags.env and /var/lib/kubelet/config.yaml
+## as defined in /etc/systemd/system/kubelet.service.d/*
+#sed -i -E 's|/usr/bin/kubelet$|$INSTALL_DIR/usr/bin/kubelet --cgroup-driver=systemd \
+#--runtime-cgroups=/systemd/system.slice --kubelet-cgroups=/systemd/system.slice \
+#--experimental-allowed-unsafe-sysctls=net.ipv4.ping_group_range|' \
+#/lib/systemd/system/kubelet.service
 
 # This is written to /etc/resolv.conf inside the containers, so to allow pods/containers to
 # use DNS this seems necessary. No idea why it is set to a service-cluster-ip-range address
-dns_ips=`kubectl describe ep kube-dns --namespace=kube-system | grep -E '^ *Addresses:' | awk '{print $NF}' | sed "s|,|\\\\\n- |g" | sed 's|^|- |g'`
-sed -i "s|- 10.96.0.10|${dns_ips}|" /var/lib/kubelet/config.yaml
-
-# TODO: look into doing the above in a cleaner way - with a yaml file instead of command-line parameters, i.e.
-# kubeadm init --config=kubeadm-config.yaml
+# - Apparently no longer needed
+#$CHROOT $INSTALL_DIR bash -c "KUBECONFIG=/etc/kubernetes/admin.conf \
+#kubectl describe ep kube-dns --namespace=kube-system | \
+#grep -E '^ *Addresses:' | awk '{print $NF}' | \
+#sed \"s|,|\\\\\n- |g\" | sed 's|^|- |g'" > dns_ips
+#sed -i "s|- 10.96.0.10|`cat dns_ips`|" $INSTALL_DIR/var/lib/kubelet/config.yaml
 
 # We don't need ipv6 - well, removing this seems to break cni...
-# sed -i.bk '/.*1100:200::.*/d' /etc/cni/net.d/100-crio-bridge.conf
+# sed -i.bk '/.*1100:200::.*/d' $INSTALL_DIR/etc/cni/net.d/100-crio-bridge.conf
 
-# Address Kubernetes bug
-# https://cloudblue.freshdesk.com/support/solutions/articles/44001886522-how-to-fix-failed-to-get-system-container-stats-on-k8s-service-node-
-cat <<EOF>/etc/systemd/system/kubelet.service.d/11-cgroups.conf
-[Service]
-CPUAccounting=true
-MemoryAccounting=true
+# Address Kubernetes bug - now done by configure_kubernetes
+# https://cloudblue.freshdesk.com/support/solutions/articles/44001886522-how-to-fix-failed-to-get-system-container-#stats-on-k8s-service-node-
+#cat <<EOF>$INSTALL_DIR/etc/systemd/system/kubelet.service.d/11-cgroups.conf
+#[Service]
+#CPUAccounting=true
+#MemoryAccounting=true
+#EOF
+
+#systemctl daemon-reload
+#systemctl restart kubelet
+
+
+##########################
+### master
+##########################
+
+if [ "$NODETYPE" == "master" ]; then
+	HOSTNAME=`cat $INSTALL_DIR/etc/hostname`
+	# Service endpoint for ScienceData user_pods
+	git clone https://github.com/deic-dk/sciencedata_kubernetes.git
+	chmod +x /root/sciencedata_kubernetes/commands/*
+	ln -s /root/sciencedata_kubernetes/commands/delete_pod $INSTALL_DIR/usr/local/bin/delete_pod
+	ln -s /root/sciencedata_kubernetes/commands/get_containers $INSTALL_DIR/usr/local/bin/get_containers
+	ln -s /root/sciencedata_kubernetes/commands/run_pod $INSTALL_DIR/usr/local/bin/run_pod
+	# Caddy configuration
+	mkdir -p $INSTALL_DIR/var/lib/caddy/.config/caddy
+	$CHROOT $INSTALL_DIR chown -R caddy:caddy /var/lib/caddy /usr/share/caddy
+
+	cat <<EOF > $INSTALL_DIR/etc/caddy/Caddyfile
+{
+	auto_https disable_redirects
+	admin off
+}
+
+https://$HOSTNAME:443 {
+	root \* /usr/share/caddy
+	file_server
+	log {
+					output file /var/log/caddy/caddy.log
+	}
+	php_fastcgi unix//run/php/php7.4-fpm.sock
+	tls {
+		ciphers TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
+	}
+	header / Strict-Transport-Security \"max-age=63072000\"
+	{
+		acme_ca \"https://acme-v02.api.letsencrypt.org/directory\"
+	}
+} 
+
+http://$HOSTNAME:80 {
+	root \* /usr/share/caddy
+	file_server
+        php_fastcgi unix//run/php/php7.4-fpm.sock
+	log {
+		output file /var/log/caddy/caddy.log
+	}
+	encode gzip zstd
+}
+
+
+http://10.0.0.$ip_num:80 {
+	root \* /usr/share/caddy
+	file_server
+	php_fastcgi unix//run/php/php7.4-fpm.sock
+	log {
+		output file /var/log/caddy/caddy.log
+	}
+	encode gzip zstd
+}
+
+import /etc/caddy/sites/\*.caddy
 EOF
 
-systemctl daemon-reload
-systemctl restart kubelet
-
-### HTTP networking with ScienceData
-cat <<EOF>/etc/systemd/system/sciencedata_bridge.service
-[Unit]
-After=network.service
-
-[Service]
-Type=forking
-ExecStart=/usr/local/sbin/sciencedata_bridge.sh
-ExecStop=/usr/local/sbin/sciencedata_bridge.sh
-
-[Install]
-WantedBy=default.target
-EOF
-
-cat <<EOF>/usr/local/sbin/sciencedata_bridge.sh
-#!/bin/bash
-
-ip_num=`ip addr | grep 'inet 10.0.0' | awk '{print $2}' | sed 's|10\.0\.0\.||' | sed 's|/24||'`
-local_if=`ip route | grep 10.0.0.0/24 | awk '{print $3}'`
-
-if [ "\$1" == "-s" ];then
-	brctl delif cni0 vlan300
-	ip link delete vlan300
-else
-	ip link add link ${local_if} name vlan300 type vlan id 300
-	ip addr add 10.2.0.${ip_num}/16 dev vlan300
-	ip link set dev vlan300 up
-	brctl addif cni0 vlan300
-	iptables -I FORWARD -s 10.2.0.0/16 -d 10.0.0.0/24 -j DROP
+# Run caddy as a system service
+# Apparently done by the deb now
+#curl https://raw.githubusercontent.com/caddyserver/dist/master/init/caddy.service | \
+#  sed 's|Type=notify|Type=simple|' > $INSTALL_DIR/etc/systemd/system/caddy.service
+#chmod 644 $INSTALL_DIR/etc/systemd/system/caddy.service
+#$CHROOT $INSTALL_DIR systemctl daemon-reload
+$CHROOT $INSTALL_DIR systemctl enable caddy
+	
+##########################
+### control-plane node
+##########################
+elif [ "$NODETYPE" == "control-plane" ]; then
+	echo "Joining control-plane"
+	# Get a join script the master has uploaded to the admin TFTP server
+	atftp $ADMIN_IP -g -r /kubernetes/join_control_plane_node.sh -l $INSTALL_DIR/root/join_control_plane_node.sh
+	# Get admin.conf and hosts
+	atftp $ADMIN_IP -g -l $INSTALL_DIR/etc/kubernetes/admin.conf -r /kubernetes/admin.conf
+	atftp $ADMIN_IP -g -l hosts -r /kubernetes/hosts
+	$CHROOT $INSTALL_DIR bash -c "tail -1 hosts >> /etc/hosts"
+	chmod +x $INSTALL_DIR/root/join_control_plane_node.sh
+	$CHROOT $INSTALL_DIR /root/join_control_plane_node.sh
+##########################
+### worker node
+##########################
+elif [ "$NODETYPE" == "worker" ]; then
+	echo "Joining as worker node"
+	# Get a join script the master has uploaded to the admin TFTP server
+	atftp $ADMIN_IP -g -r /kubernetes/join_worker.sh -l $INSTALL_DIR/root/join_worker.sh
+	# Get admin.conf and hosts
+	atftp $ADMIN_IP -g -l $INSTALL_DIR/etc/kubernetes/admin.conf -r /kubernetes/admin.conf
+	atftp $ADMIN_IP -g -l hosts -r /kubernetes/hosts
+	$CHROOT $INSTALL_DIR bash -c "tail -1 hosts >> /etc/hosts"
+	chmod +x $INSTALL_DIR/root/join_worker.sh
+	$CHROOT $INSTALL_DIR /root/join_worker.sh
 fi
-EOF
-chmod +x /usr/local/sbin/sciencedata_bridge.sh
-systemctl daemon-reload
-systemctl enable sciencedata_bridge
 
-### Install dashboard
-
-kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0/aio/deploy/recommended.yaml
-
-cat <<EOF | kubectl apply -f -
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: admin-user
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: cluster-admin
-subjects:
-- kind: ServiceAccount
-  name: admin-user
-  namespace: kube-public
-EOF
-
-cat <<EOF | kubectl apply -f -
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: admin-user
-  namespace: kube-public
-EOF
-
-# Forward port via ssh from a terminal on the host you're running your browser on
-# ssh -L 8001:localhost:8001 root@kube.sciencedata.dk
-
-# Run this on another terminal on kube.sciencedata.dk
-# kubectl proxy --address='127.0.0.1' --accept-hosts='^.*$'
-
-# Get token with
-kubectl -n kube-public describe secret `kubectl -n kube-public get secret | grep admin-user | awk '{print $1}'`
-
-# Paste it into the dashboard web interface on
-# http://127.0.0.1:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/
-
-### NFS networking with ScienceData
-git clone https://github.com/deic-dk/sciencedata_kubernetes.git
-chmod +x /root/sciencedata_kubernetes/commands/*
-cd /usr/local/bin
-ln -s /root/sciencedata_kubernetes/commands/delete_pod 
-ln -s /root/sciencedata_kubernetes/commands/get_containers 
-ln -s /root/sciencedata_kubernetes/commands/run_pod 

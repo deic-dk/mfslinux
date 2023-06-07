@@ -61,5 +61,12 @@ kmod-phylib-broadcom_%%KERNEL_VERSION%%-1_x86_64.ipk
 kmod-phy-broadcom_%%KERNEL_VERSION%%-1_x86_64.ipk
 kmod-phy-realtek_%%KERNEL_VERSION%%-1_x86_64.ipk
 kmod-vmxnet3_%%KERNEL_VERSION%%-1_x86_64.ipk
+kmod-nf-ipt_%%KERNEL_VERSION%%-1_x86_64.ipk
+kmod-ipt-core_%%KERNEL_VERSION%%-1_x86_64.ipk
+kmod-br-netfilter_%%KERNEL_VERSION%%-1_x86_64.ipk
+kmod-mdio_%%KERNEL_VERSION%%-1_x86_64.ipk
+kmod-hwmon-core_%%KERNEL_VERSION%%-1_x86_64.ipk
+kmod-mdio-devres_%%KERNEL_VERSION%%-1_x86_64.ipk
+kmod-ixgbe_%%KERNEL_VERSION%%-1_x86_64.ipk
 libatomic1_11.2.0-4_x86_64.ipk
 libstdcpp6_11.2.0-4_x86_64.ipk

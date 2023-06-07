@@ -5,7 +5,7 @@ disks=`ls /dev | grep -E 'sd[^0-9]$' | head -2`
 nvmes=`ls /dev | grep -E 'nvme0n[0-9]$' | head -2`
 
 numdisks=`echo $disks $nvmes| wc -w`
-firstdisk=`echo ${nvmes[0]} ${disks[0]} | head -1`
+firstdisk=`echo "${nvmes[0]} ${disks[0]}" | head -1 | xargs`
 
 root_part_label=ROOT
 swap_part_label=SWAP

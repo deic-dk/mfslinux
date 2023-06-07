@@ -39,6 +39,7 @@ cat <<EOF > /usr/local/sbin/zenodo_host.sh
 lbip=`kubectl get services -o wide | grep -E '^lb ' | awk '{print $3}'`
 
 grep "$lbip" /etc/hosts >&/dev/null || sed -i -E "s|^[0-9\.]+\s+(zenodo)|$lbip\t\1|" /etc/hosts
+grep "$lbip" /etc/hosts >&/dev/null || sed -i -E "s|^<none>\s+(zenodo)|$lbip\t\1|" /etc/hosts
 
 EOF
 
@@ -54,6 +55,7 @@ cat <<EOF > /usr/local/sbin/pgadmin_host.sh
 lbip=`kubectl get pods -o wide | grep -E '^pgadmin ' | awk '{print $6}'`
 
 grep "$lbip" /etc/hosts >&/dev/null || sed -i -E "s|^[0-9\.]+\s+(pgadmin)|$lbip\t\1|" /etc/hosts
+grep "$lbip" /etc/hosts >&/dev/null || sed -i -E "s|^<none>\s+(pgadmin)|$lbip\t\1|" /etc/hosts
 
 EOF
 
@@ -75,72 +77,13 @@ caddy	ALL=NOPASSWD:ALL
 EOF
 
 mkdir /etc/caddy
-cat <<EOF > /etc/caddy/Caddyfile
-{
-  auto_https disable_redirects
-  admin off
-}
 
-kube.sciencedata.dk:80 {
-
-	# Set this path to your site's directory.
-	root * /usr/share/caddy
-
-	# Enable the static file server.
-	file_server
-
-	# Another common task is to set up a reverse proxy:
-	# reverse_proxy localhost:8080
-
-	# Or serve a PHP site through php-fpm:
-	# php_fastcgi localhost:9000
-	# php_fastcgi unix//run/php/php7.4-fpm.sock
-
-	# Refer to the Caddy docs for more information:
-	# https://caddyserver.com/docs/caddyfile
-
-	log {
-		output file /var/log/caddy.log
-	}
-}
-
-https://kube.sciencedata.dk:443 {
-	root * /usr/share/caddy
-	file_server
-	log {
-		output file /var/log/caddy.log
-	}
-}
-
-# Well, this is for Kubernetes...
-10.0.0.12:80 {
-
-	# Set this path to your site's directory.
-	root * /usr/share/caddy
-
-	# Enable the static file server.
-	file_server
-
-	# Another common task is to set up a reverse proxy:
-	# reverse_proxy localhost:8080
-
-	# Or serve a PHP site through php-fpm:
-	# php_fastcgi localhost:9000
-	php_fastcgi unix//run/php/php7.4-fpm.sock
-
-	# Refer to the Caddy docs for more information:
-	# https://caddyserver.com/docs/caddyfile
-
-	log {
-		output file /var/log/caddy.log
-	}
-}
+cat <<EOF > /etc/caddy/sites/sciencerepository.caddy
+########################
+### sciencerepository
+########################
 
 http://sciencerepository.sciencedata.dk {
-	redir https://sciencerepository.dk{uri}
-}
-
-http://repository.sciencedata.dk {
 	redir https://sciencerepository.dk{uri}
 }
 
@@ -152,21 +95,19 @@ https://sciencerepository.sciencedata.dk {
 	redir https://sciencerepository.dk{uri}
 }
 
-https://repository.sciencedata.dk {
+http://repository.dk {
 	redir https://sciencerepository.dk{uri}
 }
 
 https://repository.sciencedata.dk {
-	header content-security-policy
- "connect-src 'self' https://sciencedata.dk https://*.sciencedata.dk"
+	header content-security-policy "connect-src 'self' https://sciencedata.dk https://*.sciencedata.dk"
 	header -referrer-policy
 	header -x-frame-options
 	header -strict-transport-security
 	reverse_proxy {
-		transport http {
+	transport http {
 			tls_insecure_skip_verify
 		}
-		#to http://10.96.199.151:5001
 		to https://zenodo
 	}
 	log {
@@ -176,10 +117,9 @@ https://repository.sciencedata.dk {
 
 https://sciencerepository.dk {
 	reverse_proxy {
-		transport http {
+	transport http {
 			tls_insecure_skip_verify
 		}
-		#to http://10.96.199.151:5001
 		to https://zenodo
 	}
 	log {
@@ -187,17 +127,23 @@ https://sciencerepository.dk {
 	}
 }
 
-https://kube.sciencedata.dk:8080 {
+########################
+### pgadmin
+### (for sciencerepository)
+########################
+
+https://kube.sciencedata.dk:9443 {
 	reverse_proxy {
 		to http://pgadmin:80
 	}
 	log {
-		output file /var/log/pgadmin.log
+		output file /var/log/caddy/pgadmin.log
 	}
+	encode gzip zstd
+	php_fastcgi unix//run/php/php7.4-fpm.sock
 	@blocked not remote_ip 130.225.245.245 87.73.109.19
 	respond @blocked "Nope" 403
 }
-
 EOF
 
 ## Fill in email and password, start pgadmin pod with kubectl apply -f /root/pgadmin.yaml,

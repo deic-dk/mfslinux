@@ -2,10 +2,21 @@
 
 chroot /mnt
 
+# Mathematica and MATLAB are grabbed from the admin server.
+# These will be mounted as local partitions in the pods.
+
+ADMIN_IP=10.0.0.1
+
 mkdir -p /usr/local/software
 cd /usr/local/software
-curl --insecure -OL https://fror%40dtu.dk@10.0.0.15/files/Science%20Cloud/kubefiles/WolframEngine.tar.gz
-curl --insecure -OL https://fror%40dtu.dk@10.0.0.15/files/Science%20Cloud/kubefiles/matlab.tar.gz
+tftp $ADMIN_IP <<END
+   binary
+   get /kubernetes/WolframEngine.tar.gz
+END
+	tftp $ADMIN_IP <<END
+   binary
+   get /kubernetes/matlab.tar.gz
+END
 tar -xzf WolframEngine.tar.gz
 tar -xzf matlab.tar.gz
 rm WolframEngine.tar.gz matlab.tar.gz

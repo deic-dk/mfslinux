@@ -1,0 +1,14 @@
+#!/bin/bash
+
+# Run this immediately before installing a new worker or control-plane node.
+# Otherwise you'll be trying to use expired tokens...
+
+ADMIN_IP=10.0.0.1
+
+kubeadm token create --print-join-command > join_worker.sh
+cp join_worker.sh join_control_plane_node.sh
+sed -E "s|(sha256:.*)|\1 --control-plane|" join_control_plane_node.sh
+chmod +x join_worker.sh join_control_plane_node.sh
+atftp $ADMIN_IP -p -l join_worker.sh -r /kubernetes/join_worker.sh
+atftp $ADMIN_IP -p -l join_control_plane_node.sh -r /kubernetes/join_control_plane_node.sh
+

@@ -1,0 +1,56 @@
+#!/bin/bash
+
+# Typically 10.0.0.1
+export ADMIN_IP=`ip route | grep default | awk '{print $3}'`
+
+INSTALL_DIR=/
+# Check if we're already in chroot
+if [ "$(stat -c %d:%i /)" != "$(stat -c %d:%i /proc/1/root/.)" ]; then
+	echo "We are already chrooted - probably being called from another install script."
+else
+	# Check if we're being called from mfslinux
+	if [ -e /usr/libexec/linuxinstall ] && df /mnt>&/dev/null; then
+		echo "We're called manually from mfslinux and will chroot"
+		export INSTALL_DIR=/mnt
+		export CHROOT=chroot
+	else
+		echo "We're called manually on an installed system. NOT chroot'ing"
+	fi
+fi
+
+atftp $ADMIN_IP -g -r /ubuntu/kubernetes/kubernetes_config_files.tar.gz -l kubernetes_config_files.tar.gz
+tar -xzf kubernetes_config_files.tar.gz -C $INSTALL_DIR
+
+MASTER_INTERNAL_IP=10.0.0.34
+CERT_FILE=/etc/kubernetes/pki/service.crt
+KEY_FILE=/etc/kubernetes/pki/service.key
+SA_PUB_KEY_FILE=/etc/kubernetes/pki/sa.pub
+SA_PRIVATE_KEY_FILE=/etc/kubernetes/pki/sa.key
+CA_CERT_FILE=/etc/kubernetes/pki/ca.crt
+CA_KEY_FILE=/etc/kubernetes/pki/ca.crt
+CA_CERT_DATA=`cat $CA_CERT_FILE | base64 | tr -d '\n'`
+CERT_DATA=`cat $CERT_FILE | base64 | tr -d '\n'`
+KEY_DATA=`cat $KEY_FILE | base64 | tr -d '\n'`
+SERVICE_CLUSTER_IP_RANGE=10.96.0.0/12
+CLUSTER_CIDR=10.2.0.0/16
+CLUSTER_DNS_1=10.2.0.10
+CLUSTER_DNS_2=10.2.0.11
+
+ls -d $INSTALL_DIR/etc/kubernetes/*.conf $INSTALL_DIR/etc/kubernetes/manifests/*.yaml $INSTALL_DIR/var/lib/kubelet/*.yaml | \
+while read name; do
+  sed -i "s|MASTER_INTERNAL_IP|$MASTER_INTERNAL_IP|g" 
+  sed -i "s|CERT_FILE|$CERT_FILE|g" 
+  sed -i "s|KEY_FILE|$KEY_FILE|g" 
+  sed -i "s|SA_PUB_KEY_FILE|$SA_PUB_KEY_FILE|g" 
+  sed -i "s|SA_PRIVATE_KEY_FILE|$SA_PRIVATE_KEY_FILE|g" 
+  sed -i "s|CA_CERT_FILE|$CA_CERT_FILE|g" 
+  sed -i "s|CA_KEY_FILE|$CA_KEY_FILE|g" 
+  sed -i "s|CA_CERT_DATA|$CA_CERT_DATA|g" 
+  sed -i "s|CERT_DATA|$CERT_DATA|g" 
+  sed -i "s|KEY_DATA|$KEY_DATA|g" 
+  sed -i "s|SERVICE_CLUSTER_IP_RANGE|$SERVICE_CLUSTER_IP_RANGE|g" 
+  sed -i "s|CLUSTER_CIDR|$CLUSTER_CIDR|g" 
+  sed -i "s|CLUSTER_DNS_1|$CLUSTER_DNS_1|g" 
+  sed -i "s|CLUSTER_DNS_2|$CLUSTER_DNS_2|g" 
+done
+

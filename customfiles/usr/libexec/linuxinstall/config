@@ -18,13 +18,16 @@ else
 	echo "No network configuration available via TFTP, using fallback."
 	echo "Please check /etc/netplan/01-netcfg.yaml and disable network configuration in /etc/rc.local"
 	atftp $tftp_server_ip -g -r /ubuntu/config/fallback/01-netcfg.yaml -l 01-netcfg.yaml
-	HOSTNAME=peon
 	
-cat <<EOF> /mnt/etc/rc.local
+	MY_INTERNAL_IP_NUM=`ifconfig | grep 'inet ' | grep -v 127 | head -1 | awk '{print $2}' | awk -F. '{print $NF}'`
+	HOSTNAME=peon${MY_INTERNAL_IP_NUM}
+	
+	cat <<EOF> /mnt/etc/rc.local
 #!/bin/bash
 
 interface=\$(ls /sys/class/net | grep -v lo | head -1)
 sed -i "s|eth0|\$interface|" /etc/netplan/01-netcfg.yaml
+netplan apply
 
 EOF
 
@@ -37,5 +40,5 @@ echo $HOSTNAME > /mnt/etc/hostname
 
 # Copy over customfiles/install
 
-cp -af /install/* /
+cp -af /install/* /mnt/
 
