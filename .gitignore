@@ -6,3 +6,5 @@ config/*
 /tmp/
 /.gitignore
 /.project
+/work.old/
+/build.log
