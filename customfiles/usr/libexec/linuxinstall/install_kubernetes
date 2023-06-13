@@ -377,6 +377,11 @@ if [ "$NODETYPE" == "master" ]; then
 	ln -s /root/sciencedata_kubernetes/commands/delete_pod $INSTALL_DIR/usr/local/bin/delete_pod
 	ln -s /root/sciencedata_kubernetes/commands/get_containers $INSTALL_DIR/usr/local/bin/get_containers
 	ln -s /root/sciencedata_kubernetes/commands/run_pod $INSTALL_DIR/usr/local/bin/run_pod
+	$CHROOT $INSTALL_DIR bash -c "cd /usr/share/caddy; ls /root/sciencedata_kubernetes/commands/*.php | while read name; do ln -s "$name"; done"
+	chmod go+rx $INSTALL_DIR/root
+	touch $INSTALL_DIR/var/log/kube.log
+	chown www-data:www-data $INSTALL_DIR/var/log/kube.log
+	chmod go+r $INSTALL_DIR/etc/kubernetes/admin.conf
 	# Caddy configuration
 	mkdir -p $INSTALL_DIR/var/lib/caddy/.config/caddy
 	$CHROOT $INSTALL_DIR chown -R caddy:caddy /var/lib/caddy /usr/share/caddy
@@ -388,25 +393,25 @@ if [ "$NODETYPE" == "master" ]; then
 }
 
 https://$HOSTNAME:443 {
-	root \* /usr/share/caddy
+	root * /usr/share/caddy
 	file_server
 	log {
 					output file /var/log/caddy/caddy.log
 	}
-	php_fastcgi unix//run/php/php7.4-fpm.sock
+	php_fastcgi unix//run/php/php-fpm.sock
 	tls {
 		ciphers TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
 	}
-	header / Strict-Transport-Security \"max-age=63072000\"
+	header / Strict-Transport-Security "max-age=63072000"
 	{
-		acme_ca \"https://acme-v02.api.letsencrypt.org/directory\"
+		acme_ca "https://acme-v02.api.letsencrypt.org/directory"
 	}
 } 
 
 http://$HOSTNAME:80 {
-	root \* /usr/share/caddy
+	root * /usr/share/caddy
 	file_server
-        php_fastcgi unix//run/php/php7.4-fpm.sock
+        php_fastcgi unix//run/php/php-fpm.sock
 	log {
 		output file /var/log/caddy/caddy.log
 	}
@@ -414,17 +419,17 @@ http://$HOSTNAME:80 {
 }
 
 
-http://10.0.0.$ip_num:80 {
-	root \* /usr/share/caddy
+http://10.0.0.$MY_INTERNAL_IP_NUM:80 {
+	root * /usr/share/caddy
 	file_server
-	php_fastcgi unix//run/php/php7.4-fpm.sock
+	php_fastcgi unix//run/php/php-fpm.sock
 	log {
 		output file /var/log/caddy/caddy.log
 	}
 	encode gzip zstd
 }
 
-import /etc/caddy/sites/\*.caddy
+import /etc/caddy/sites/*.caddy
 EOF
 
 # Run caddy as a system service
