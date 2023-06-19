@@ -1,0 +1,36 @@
+#!/bin/bash
+
+export SCRIPTDIR=$( dirname -- "$0"; )
+
+export ADMIN_IP=10.0.0.1
+
+# Set this to get an entry in /etc/hosts
+#export SCIENCEDATA_INTERNAL_IP=10.0.0.13
+
+# Check if we're already in chroot
+if [ "$(stat -c %d:%i /)" != "$(stat -c %d:%i /proc/1/root/.)" ]; then
+	echo "We are already chrooted - probably being called from another install script."
+	export IN_CHROOT=1
+else
+	# Check if we're being called from mfslinux
+	if [ -e /usr/libexec/linuxinstall ] && grep /mnt /proc/mounts >& /dev/null; then
+		echo "We're called manually from mfslinux and will chroot"
+		export INSTALL_DIR=/mnt
+		export CHROOT=chroot
+	else
+		echo "We're called manually on an installed system. NOT chroot'ing"
+		$CHROOT $INSTALL_DIR timedatectl set-timezone Europe/Copenhagen
+	fi
+fi
+
+export MY_HOSTNAME=`cat $INSTALL_DIR/etc/hostname`
+
+# If this box has a static IP, grab the internal IP from the netplan config
+export MY_INTERNAL_IP=`cat /etc/netplan/01-netcfg.yaml | yq -r '.network.ethernets | map_values(select(.addresses[0] | startswith("10.0.0."))) | to_entries | .[0].value.addresses[0]' | sed -r 's|/[0-9]+$||'`
+# Otherwise assume one network interface
+if [ -z "$MY_INTERNAL_IP" ]; then
+	export MY_INTERNAL_IP=`ifconfig | grep 'inet ' | grep -v 127 | head -1 | awk '{print $2}' | sed -E 's|:.*$||'`
+fi
+
+export MY_INTERNAL_IP_NUM=`echo $MY_INTERNAL_IP | sed -E 's|10\.0\.[0-9]+\.||'`
+

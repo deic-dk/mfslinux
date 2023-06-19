@@ -1,10 +1,13 @@
 #!/bin/bash
 
-export NODETYPE="$1"
+########################
+### Set variables
+########################
+SCRIPTDIR=$( dirname -- "$0"; )
+. "$SCRIPTDIR/set_params"
+########################
 
-export ADMIN_IP=10.0.0.1
-# Set this to get an entry in /etc/hosts
-#export SCIENCEDATA_INTERNAL_IP=10.0.0.13
+export NODETYPE="$1"
 
 # Are we installing a master
 if [ "$NODETYPE" == "master" ]; then
@@ -18,36 +21,6 @@ else
 	echo "You have to specify the type of node you're installing: install_kubernetes [master|control-plane|worker]"
 	exit 1
 fi
-
-# To run on an installed host, comment out the two lines below
-
-
-# Check if we're already in chroot
-if [ "$(stat -c %d:%i /)" != "$(stat -c %d:%i /proc/1/root/.)" ]; then
-	echo "We are already chrooted - probably being called from another install script."
-	export IN_CHROOT=1
-else
-	# Check if we're being called from mfslinux
-	if [ -e /usr/libexec/linuxinstall ] && grep /mnt /proc/mounts >& /dev/null; then
-		echo "We're called manually from mfslinux and will chroot"
-		export INSTALL_DIR=/mnt
-		export CHROOT=chroot
-	else
-		echo "We're called manually on an installed system. NOT chroot'ing"
-		$CHROOT $INSTALL_DIR timedatectl set-timezone Europe/Copenhagen
-	fi
-fi
-
-export MY_HOSTNAME=`cat $INSTALL_DIR/etc/hostname`
-
-# If this box has a static IP, grab the internal IP from the netplan config
-export MY_INTERNAL_IP=`cat /etc/netplan/01-netcfg.yaml | yq -r '.network.ethernets | map_values(select(.addresses[0] | startswith("10.0.0."))) | to_entries | .[0].value.addresses[0]' | sed -r 's|/[0-9]+$||'`
-# Otherwise assume one network interface
-if [ -z "$MY_INTERNAL_IP" ]; then
-	export MY_INTERNAL_IP=`ifconfig | grep 'inet ' | grep -v 127 | head -1 | awk '{print $2}' | sed -E 's|:.*$||'`
-fi
-
-export MY_INTERNAL_IP_NUM=`echo $MY_INTERNAL_IP | sed -E 's|10\.0\.[0-9]+\.||'`
 
 # Swapoff
 $CHROOT $INSTALL_DIR swapoff -a
@@ -111,6 +84,7 @@ cat <<EOF> $INSTALL_DIR/etc/sysctl.d/99-kubernetes-cri.conf
 net.bridge.bridge-nf-call-iptables  = 1
 net.ipv4.ip_forward                 = 1
 net.bridge.bridge-nf-call-ip6tables = 1
+net.core.rmem_max                   = 2500000
 EOF
 
 # Add Docker registry
@@ -380,11 +354,20 @@ if [ "$NODETYPE" == "master" ]; then
 	$CHROOT $INSTALL_DIR bash -c "cd /usr/share/caddy; ls /root/sciencedata_kubernetes/commands/*.php | while read name; do ln -s "$name"; done"
 	chmod go+rx $INSTALL_DIR/root
 	touch $INSTALL_DIR/var/log/kube.log
-	chown www-data:www-data $INSTALL_DIR/var/log/kube.log
+	chown caddy:caddy $INSTALL_DIR/var/log/kube.log
 	chmod go+r $INSTALL_DIR/etc/kubernetes/admin.conf
 	# Caddy configuration
 	mkdir -p $INSTALL_DIR/var/lib/caddy/.config/caddy
 	$CHROOT $INSTALL_DIR chown -R caddy:caddy /var/lib/caddy /usr/share/caddy
+	mkdir -p $INSTALL_DIR/var/www
+	# Not necessary, we now run php as caddy
+	#$CHROOT $INSTALL_DIR chown www-data:www-data /var/www
+	$CHROOT $INSTALL_DIR sed -i 's|www-data|caddy|' /etc/php/*/fpm/pool.d/www.conf
+	# Get the password to match incoming queries for all containers against
+	atftp $ADMIN_IP -g -r /kubernetes/private/get_containers_password.sh -l $INSTALL_DIR/root/get_containers_password.sh
+	. $INSTALL_DIR/root/get_containers_password.sh
+	echo $GET_CONTAINERS_PASSWORD > $INSTALL_DIR/root/.get_containers_passwd
+	$CHROOT $INSTALL_DIR chown caddy:caddy /root/.get_containers_passwd
 
 	cat <<EOF > $INSTALL_DIR/etc/caddy/Caddyfile
 {
@@ -399,13 +382,13 @@ https://$HOSTNAME:443 {
 					output file /var/log/caddy/caddy.log
 	}
 	php_fastcgi unix//run/php/php-fpm.sock
-	tls {
-		ciphers TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
-	}
-	header / Strict-Transport-Security "max-age=63072000"
-	{
-		acme_ca "https://acme-v02.api.letsencrypt.org/directory"
-	}
+#	tls {
+#		ciphers TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
+#	}
+#	header / Strict-Transport-Security "max-age=63072000"
+#	{
+#		acme_ca "https://acme-v02.api.letsencrypt.org/directory"
+#	}
 } 
 
 http://$HOSTNAME:80 {

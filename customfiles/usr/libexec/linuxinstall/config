@@ -15,7 +15,7 @@ if [ -s "01-netcfg.yaml" ]; then
 	HOSTNAME_FQ=`host $IP_ADDRESS | awk '{print $NF}'`
 	HOSTNAME=`echo $HOSTNAME_FQ | sed 's|\..*$||g'`
 else
-	echo "No network configuration available via TFTP, using fallback."
+	echo "No network configuration available via TFTP, using fallback, assuming one network card."
 	echo "Please check /etc/netplan/01-netcfg.yaml and disable network configuration in /etc/rc.local"
 	atftp $tftp_server_ip -g -r /ubuntu/config/fallback/01-netcfg.yaml -l 01-netcfg.yaml
 	

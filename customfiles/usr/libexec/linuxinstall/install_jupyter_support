@@ -1,13 +1,56 @@
 #!/bin/bash
 
-chroot /mnt
+########################
+### Set variables
+########################
+SCRIPTDIR=$( dirname -- "$0"; )
+. "$SCRIPTDIR/set_params"
+########################
+
+########################
+### Deploy nbviewer
+########################
+
+# Grab the GitHub credentials from the admin server
+atftp $ADMIN_IP -g -r /ubuntu/config/private/nbviewer_github_credentials.sh -l nbviewer_github_credentials.sh
+. nbviewer_github_credentials.sh
+
+# Grab customized nbviewer from our github repo
+$CHROOT $INSTALL_DIR git clone https://github.com/deic-dk/nbviewer.git
+sed -i "s|github_client_id|$github_client_id|" $INSTALL_DIR/nbviewer/nbviewer.yaml
+sed -i "s|github_client_secret|$github_client_secret|" $INSTALL_DIR/nbviewer/nbviewer.yaml
+rm nbviewer_github_credentials.sh
+
+# Deploy the service
+$CHROOT $INSTALL_DIR kubectl apply -f nbviewer/nbviewer.yaml
+
+# Script and cronjob to point nbviewer to the nbviewer pod
+ls $INSTALL_DIR/usr/local/sbin/nbviewer_host.sh >&/dev/null || \
+cat <<EOF > $INSTALL_DIR/usr/local/sbin/nbviewer_host.sh
+#!/bin/bash
+#nbip=`kubectl get services -o wide | grep -E '^nbviewer ' | awk '{print $3}'`
+nbip=`kubectl get service/nbviewer -o yaml | yq -r .spec.clusterIP`
+grep "$nbip" /etc/hosts >&/dev/null || sed -i -E "s|^[0-9\.]+\s+(nbviewer)|$lbip\t\1|" /etc/hosts
+grep "$nbip" /etc/hosts >&/dev/null || sed -i -E "s|^<>\s+(nbviewer)|$lbip\t\1|" /etc/hosts
+EOF
+
+chmod +x $INSTALL_DIR/usr/local/sbin/nbviewer_host.sh
+
+ls $INSTALL_DIR/etc/cron.hourly/nbviewer >&/dev/null || \
+cat <<EOF > $INSTALL_DIR/etc/cron.hourly/nbviewer
+/usr/local/bin/nbviewer_host.sh
+EOF
+
+########################
+### caddy configuration
+########################
 
 # We're assuming a running caddy has already been configured.
-cat <<EOF >> /etc/caddy/caddy/sites/sciencenotebooks.caddy
+ls $INSTALL_DIR/etc/caddy/caddy/sites || mkdir $INSTALL_DIR/etc/caddy/caddy/sites
+ls $INSTALL_DIR/etc/caddy/caddy/sites/sciencenotebooks.caddy >&/dev/null || \
+cat <<EOF > $INSTALL_DIR/etc/caddy/caddy/sites/sciencenotebooks.caddy
 
-########################
-### nbviewer
-########################
+### nbviewer ###
 
 https://kube.sciencedata.dk:8443 {
 	reverse_proxy {
@@ -27,9 +70,7 @@ https://10.0.0.12:8443 {
 	}
 }
 
-########################
-### sciencenotebooks
-########################
+### sciencenotebooks ###
 
 http://sciencenotebooks.sciencedata.dk {
 	redir https://sciencenotebooks.sciencedata.dk{uri}
@@ -58,19 +99,4 @@ https://sciencenotebooks.dk {
 }
 
 EOF
-
-# Cronjob to point nbviewer to the nbviewer pod
-
-cat <<EOF > /usr/local/sbin/nbviewer_host.sh
-#!/bin/bash
-nbip=`kubectl get services -o wide | grep -E '^nbviewer ' | awk '{print $3}'`
-grep "$nbip" /etc/hosts >&/dev/null || sed -i -E "s|^[0-9\.]+\s+(nbviewer)|$lbip\t\1|" /etc/hostss
-grep "$nbip" /etc/hosts >&/dev/null || sed -i -E "s|^<>\s+(nbviewer)|$lbip\t\1|" /etc/hostss
-EOF
-
-cat <<EOF > /etc/cron.hourly/nbviewer
-/usr/local/bin/nbviewer_host.sh
-EOF
-
-grep nbviewer /etc/hosts || echo "10.108.30.107	nbviewer" >> /etc/hosts
 

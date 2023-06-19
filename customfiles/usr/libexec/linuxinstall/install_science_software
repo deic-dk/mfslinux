@@ -1,22 +1,23 @@
 #!/bin/bash
 
-chroot /mnt
+########################
+### Set variables
+########################
+SCRIPTDIR=$( dirname -- "$0"; )
+. "$SCRIPTDIR/set_params"
+########################
+
 
 # Mathematica and MATLAB are grabbed from the admin server.
 # These will be mounted as local partitions in the pods.
 
-ADMIN_IP=10.0.0.1
+mkdir -p $INSTALL_DIR/usr/local/software
 
-mkdir -p /usr/local/software
-cd /usr/local/software
-tftp $ADMIN_IP <<END
-   binary
-   get /kubernetes/WolframEngine.tar.gz
-END
-	tftp $ADMIN_IP <<END
-   binary
-   get /kubernetes/matlab.tar.gz
-END
-tar -xzf WolframEngine.tar.gz
-tar -xzf matlab.tar.gz
-rm WolframEngine.tar.gz matlab.tar.gz
+echo "Getting tarballs. This may take a while..."
+atftp $ADMIN_IP -g -l $INSTALL_DIR//usr/local/software/WolframEngine.tar.gz -r /kubernetes/WolframEngine.tar.gz
+atftp $ADMIN_IP -g -l $INSTALL_DIR/usr/local/software/matlab.tar.gz -r /kubernetes/matlab.tar.gz
+echo "Unpacking..."
+tar -xzf $INSTALL_DIR/usr/local/software/WolframEngine.tar.gz -C $INSTALL_DIR/usr/local/software/
+tar -xzf $INSTALL_DIR/usr/local/software/matlab.tar.gz -C $INSTALL_DIR/usr/local/software/
+rm $INSTALL_DIR/usr/local/software/WolframEngine.tar.gz
+rm $INSTALL_DIR/usr/local/software/matlab.tar.gz
