@@ -14,10 +14,10 @@ SCRIPTDIR=$( dirname -- "$0"; )
 mkdir -p $INSTALL_DIR/usr/local/software
 
 echo "Getting tarballs. This may take a while..."
-atftp $ADMIN_IP -g -l $INSTALL_DIR//usr/local/software/WolframEngine.tar.gz -r /kubernetes/WolframEngine.tar.gz
+atftp $ADMIN_IP -g -l $INSTALL_DIR//usr/local/software/Wolfram.tar.gz -r /kubernetes/Wolfram.tar.gz
 atftp $ADMIN_IP -g -l $INSTALL_DIR/usr/local/software/matlab.tar.gz -r /kubernetes/matlab.tar.gz
 echo "Unpacking..."
-tar -xzf $INSTALL_DIR/usr/local/software/WolframEngine.tar.gz -C $INSTALL_DIR/usr/local/software/
+tar -xzf $INSTALL_DIR/usr/local/software/Wolfram.tar.gz -C $INSTALL_DIR/usr/local/software/
 tar -xzf $INSTALL_DIR/usr/local/software/matlab.tar.gz -C $INSTALL_DIR/usr/local/software/
-rm $INSTALL_DIR/usr/local/software/WolframEngine.tar.gz
+rm $INSTALL_DIR/usr/local/software/Wolfram.tar.gz
 rm $INSTALL_DIR/usr/local/software/matlab.tar.gz
