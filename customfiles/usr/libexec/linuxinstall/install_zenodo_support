@@ -1,6 +1,13 @@
 #!/bin/bash
 
-chroot /mnt
+########################
+### Set variables
+########################
+SCRIPTDIR=$( dirname -- "$0"; )
+. "$SCRIPTDIR/set_params"
+########################
+
+$CHROOT $INSTALL_DIR
 
 # This will be mounted onto /var/lib/postgresql in the db pod
 mkdir -p /usr/local/postgresql
@@ -20,7 +27,7 @@ EOF
 
 cat <<EOF > /usr/local/sbin/zenodo_backup.sh
 #!/bin/bash
-# Delete the db container
+# Remove the db container
 kubectl scale --replicas=0 deployment/db
 rclone sync --transfers 1 /usr/local/postgresql sciencedata-storage-cloud:zenodo/postgresql
 # Fire up the db container again
@@ -66,9 +73,6 @@ EOF
 
 chmod +x /usr/local/sbin/zenodo_host.sh /etc/cron.hourly/zenodo /usr/local/sbin/zenodo_backup.sh \
 /etc/cron.daily/zenodo /usr/local/bin/pgadmin_host.sh /etc/cron.hourly/pgadmin
-
-grep pgadmin /etc/hosts || echo "10.2.3.232	pgadmin" >> /etc/hosts
-grep zenodo /etc/hosts || echo "10.111.107.188	zenodo" >> /etc/hosts
 
 # Caddy needs to be able to update root CA
 cat <<EOF >> /etc/sudoers
@@ -175,4 +179,26 @@ touch /var/log/pgadmin.log
 touch /var/log/caddy.log
 
 chown caddy /var/log/zenodo.log /var/log/nbviewer.log /var/log/pgadmin.log /var/log/caddy.log
+
+# Set up GitHub credentials
+atftp $ADMIN_IP -g -r /freebsd/config/private/github_credentials.sh -l github_credentials.sh
+. ./github_credentials.sh
+rm github_credentials.sh
+
+cat <<EOF >> "/root/.netrc"
+machine github.com
+login $GITHUB_USERNAME
+password $GITHUB_PASSWORD
+EOF
+
+# Get the Zenodo YAML files
+git clone https://github.com/deic-dk/zenodo_deployment.git
+
+###################
+## Fire up the pods
+###################
+
+kubectl apply -f zenodo_deployment/zenodo_volumes.yaml
+kubectl apply -f zenodo_deployment/zenodo_support_services.yaml
+kubectl apply -f zenodo_deployment/zenodo_services.yaml
 

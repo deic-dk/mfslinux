@@ -135,6 +135,10 @@ fi
 cat <<"EOF">$INSTALL_DIR/usr/local/sbin/sciencedata_bridge.sh
 #!/bin/bash
 
+# Figure out the IP of the master
+master_host=`grep -E '^ *server:' /etc/kubernetes/admin.conf | sed -E 's|.* https://([^:]*):*[0-9]*$|\1|'`
+master_ip=`grep -E " *$master_host$" /etc/hosts | awk '{print $1}'`
+
 # This only works if the network is actually up
 #ip_num=`ip addr | grep 'inet 10.0.0' | awk '{print $2}' | sed 's|10\.0\.0\.||'`
 #local_if=`ip route | grep 10.0.0.0/24 | awk '{print $3}'`
@@ -158,6 +162,7 @@ if [ "$1" == "-s" ];then
 	iptables -D FORWARD -s 10.2.0.0/16 -d 10.0.0.0/16 -j DROP
 	iptables -t nat -D POSTROUTING -s 10.2.0.0/16  ! -d 10.2.0.0/16 -j MASQUERADE
 	iptables -t nat -D POSTROUTING -s 10.0.0.0/16  ! -d 10.0.0.0/16 -j MASQUERADE
+	iptables -D FORWARD -s 10.2.0.0/16 -d ${master_ip}/32 -j ACCEPT
 else
 	# Create vlan300 interface
 	ip link add link ${local_if} vlan300 type vlan id 300
@@ -190,6 +195,9 @@ else
 	# Allow worker nodes to use master as gateway
 	iptables -t nat -D POSTROUTING -s 10.0.0.0/16  ! -d 10.0.0.0/16 -j MASQUERADE
 	iptables -t nat -A POSTROUTING -s 10.0.0.0/16  ! -d 10.0.0.0/16 -j MASQUERADE
+	# Allow user pods (with IPs in 10.2.0/16) to access services (in 10.0.0.64/26)
+	# It needs only exist on the worker nodes
+	iptables -I FORWARD -s 10.2.0.0/16 -d ${master_ip}/32 -j ACCEPT
 	# Dunno where these come from, but they obstruct things...
 	ip route del 1.1.1.1 via 10.0.0.1
 	ip route del 10.0.0.1
@@ -229,28 +237,6 @@ echo 'export KUBECONFIG=/etc/kubernetes/admin.conf' >> $INSTALL_DIR/root/.bashrc
 # In case we're running a normal install outside chroot
 export KUBECONFIG=/etc/kubernetes/admin.conf
 
-# Apparently /etc/default/kubelet and/or KUBELET_EXTRA_ARGS is not used in this version
-#cat <<EOF | tee $INSTALL_DIR/etc/default/kubelet
-#KUBELET_EXTRA_ARGS=--feature-gates="AllAlpha=false,RunAsGroup=true" \
-#--container-runtime=remote \
-#--cgroup-driver=systemd \
-#--container-runtime-endpoint='unix:///var/run/crio/crio.sock' \
-#--runtime-request-timeout=5m
-#EOF
-
-# Hardcode the service definition instead
-#sed -i 's|/usr/bin/kubelet|/usr/bin/kubelet --feature-gates="AllAlpha=false,RunAsGroup=true" \\\
-#	--container-runtime=remote \\\
-#	--cgroup-driver=systemd \\\
-#	--container-runtime-endpoint=unix:///var/run/crio/crio.sock \\\
-#	--runtime-request-timeout=1m|' $INSTALL_DIR/lib/systemd/system/kubelet.service
-
-# This does not work because it creates an /etc/kubernetes/kubelet.conf w/o "cgroupDriver: systemd"
-# But it creates manifests etc.
-
-# So... add the above line manually with kubeadm running
-##$CHROOT $INSTALL_DIR kubeadm reset -f --cri-socket unix:///var/run/crio/crio.sock
-
 # Kubernetes needs this. And it's apparently been reset by some of the above
 $CHROOT $INSTALL_DIR bash -c "echo '1' > /proc/sys/net/bridge/bridge-nf-call-iptables"
 # Well, seems to be disabled by netscript
@@ -259,7 +245,7 @@ $CHROOT $INSTALL_DIR systemctl disable netscript
 if [ "$NODETYPE" == "master" ]; then
 	echo '1' > /proc/sys/net/bridge/bridge-nf-call-iptables
 	# Initialize
-	# Notice that we do not use --service-cidr=10.0.0.0/24 because that would case the default kubernetes service
+	# Notice that we do not use --service-cidr=10.0.0.0/24 because that would cause the default kubernetes service
 	# to have endpoint 10.0.0.1:443 - see https://networkop.co.uk/post/2020-06-kubernetes-default/
 	# With --service-cidr=10.0.0.64/26 will get the endpoint 10.0.0.65:443 - and for kube-dns 10.0.0.74.
 	test `cat $INSTALL_DIR/proc/sys/net/bridge/bridge-nf-call-iptables` -eq 1 || { echo "you need bridge-nf-call-iptables" >&2 && exit 1; }
