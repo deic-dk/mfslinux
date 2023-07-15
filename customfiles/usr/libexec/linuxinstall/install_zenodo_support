@@ -40,36 +40,35 @@ EOF
 
 # Cronjob to point zenodo to the lb pod
 
-cat <<EOF > /usr/local/sbin/zenodo_host.sh
+cat <<"EOF" > /usr/local/sbin/zenodo_host.sh
 #!/bin/bash
 
 lbip=`kubectl get services -o wide | grep -E '^lb ' | awk '{print $3}'`
 
 grep "$lbip" /etc/hosts >&/dev/null || sed -i -E "s|^[0-9\.]+\s+(zenodo)|$lbip\t\1|" /etc/hosts
-grep "$lbip" /etc/hosts >&/dev/null || sed -i -E "s|^<none>\s+(zenodo)|$lbip\t\1|" /etc/hosts
+grep "zenodo" /etc/hosts >&/dev/null || echo "$lbip	zenodo" >> /etc/hosts
 
 EOF
 
 cat <<EOF > /etc/cron.hourly/zenodo
-/usr/local/bin/zenodo_host.sh
+/usr/local/sbin/zenodo_host.sh
 EOF
 
 # Cronjob to point pgadmin to the pgadmin pod
 
-cat <<EOF > /usr/local/sbin/pgadmin_host.sh
+cat <<"EOF" > /usr/local/sbin/pgadmin_host.sh
 #!/bin/bash
 
 lbip=`kubectl get pods -o wide | grep -E '^pgadmin ' | awk '{print $6}'`
 
 grep "$lbip" /etc/hosts >&/dev/null || sed -i -E "s|^[0-9\.]+\s+(pgadmin)|$lbip\t\1|" /etc/hosts
-grep "$lbip" /etc/hosts >&/dev/null || sed -i -E "s|^<none>\s+(pgadmin)|$lbip\t\1|" /etc/hosts
+grep "pgadmin" /etc/hosts >&/dev/null || echo "$lbip	pgadmin" >> /etc/hosts
 
 EOF
 
 cat <<EOF > /etc/cron.hourly/pgadmin
 /usr/local/bin/pgadmin_host.sh
 EOF
-
 
 chmod +x /usr/local/sbin/zenodo_host.sh /etc/cron.hourly/zenodo /usr/local/sbin/zenodo_backup.sh \
 /etc/cron.daily/zenodo /usr/local/bin/pgadmin_host.sh /etc/cron.hourly/pgadmin
@@ -99,27 +98,19 @@ https://sciencerepository.sciencedata.dk {
 	redir https://sciencerepository.dk{uri}
 }
 
-http://repository.dk {
+http://repository.sciencedata.dk {
 	redir https://sciencerepository.dk{uri}
 }
 
 https://repository.sciencedata.dk {
-	header content-security-policy "connect-src 'self' https://sciencedata.dk https://*.sciencedata.dk"
-	header -referrer-policy
-	header -x-frame-options
-	header -strict-transport-security
-	reverse_proxy {
-	transport http {
-			tls_insecure_skip_verify
-		}
-		to https://zenodo
-	}
-	log {
-		output file /var/log/zenodo.log
-	}
+	redir https://sciencerepository.dk{uri}
 }
 
 https://sciencerepository.dk {
+	#header content-security-policy "connect-src 'self' https://sciencedata.dk https://*.sciencedata.dk"
+	#header -referrer-policy
+	#header -x-frame-options
+	#header -strict-transport-security
 	reverse_proxy {
 	transport http {
 			tls_insecure_skip_verify
@@ -127,9 +118,12 @@ https://sciencerepository.dk {
 		to https://zenodo
 	}
 	log {
-		output file /var/log/zenodo.log
+		output file /var/log/caddy/zenodo.log
 	}
 }
+
+touch /var/log/caddy/zenodo.log
+chown caddy:caddy /var/log/caddy/zenodo.log
 
 ########################
 ### pgadmin
@@ -185,14 +179,14 @@ atftp $ADMIN_IP -g -r /freebsd/config/private/github_credentials.sh -l github_cr
 . ./github_credentials.sh
 rm github_credentials.sh
 
-cat <<EOF >> "/root/.netrc"
+cat <<EOF > /root/.netrc
 machine github.com
 login $GITHUB_USERNAME
 password $GITHUB_PASSWORD
 EOF
 
 # Get the Zenodo YAML files
-git clone https://github.com/deic-dk/zenodo_deployment.git
+ls zenodo_deployment >&/dev/null || git clone https://github.com/deic-dk/zenodo_deployment.git
 
 ###################
 ## Fire up the pods

@@ -408,7 +408,22 @@ EOF
 #chmod 644 $INSTALL_DIR/etc/systemd/system/caddy.service
 #$CHROOT $INSTALL_DIR systemctl daemon-reload
 $CHROOT $INSTALL_DIR systemctl enable caddy
-	
+
+# UID 80 needs to exist on the servers and in the pods, for NFS mount permissions to work (shares are owned by www on sciencedata).
+$CHROOT $INSTALL_DIR groupadd -g 80 www
+$CHROOT $INSTALL_DIR useradd -g 80 -u 80 www
+
+# Set the default nfs user to www
+sed -i 's|nobody|www|' $INSTALL_DIR/etc/idmapd.conf
+sed -i 's|nogroup|www|' $INSTALL_DIR/etc/idmapd.conf
+sed -i 's|# Domain = localdomain|Domain = sciencedata.dk|' $INSTALL_DIR/etc/idmapd.conf
+
+# Enable nfs-common
+rm $INSTALL_DIR/lib/systemd/system/nfs-common.service
+$CHROOT $INSTALL_DIR bash -c "systemctl daemon-reload"
+$CHROOT $INSTALL_DIR bash -c "systemctl enable nfs-common"
+$CHROOT $INSTALL_DIR bash -c "systemctl start nfs-common"
+
 ##########################
 ### control-plane node
 ##########################
