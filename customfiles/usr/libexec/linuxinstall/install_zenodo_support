@@ -12,26 +12,15 @@ $CHROOT $INSTALL_DIR
 # This will be mounted onto /var/lib/postgresql in the db pod
 mkdir -p /usr/local/postgresql
 
-# We back it up to sciencedata every night
+# We back it up to sciencedata every night.
 
-mkdir -p /root/.config/rclone
-
-cat <<EOF > /root/.config/rclone/rclone.conf
-[sciencedata-storage-cloud]
-type = webdav
-url = https://sciencedata.dk
-vendor = other
-user = cloud
-pass = W4nxg78ibFW3IKJbiHs_AHWvXwnJxsMFEnWw
-EOF
-
-cat <<EOF > /usr/local/sbin/zenodo_backup.sh
+cat <<"EOF" > /usr/local/sbin/zenodo_backup.sh
 #!/bin/bash
-# Remove the db container
-kubectl scale --replicas=0 deployment/db
-rclone sync --transfers 1 /usr/local/postgresql sciencedata-storage-cloud:zenodo/postgresql
-# Fire up the db container again
-kubectl scale --replicas=1 deployment/db
+
+kubectl exec -it `kubectl get pods  | grep db- | awk '{print $1}'` -- gosu postgres pg_dump -c -U zenodo zenodo > zenodo.sql
+
+curl --insecure -u cloud: --upload zenodo.sql https://10.0.0.13/files/kubefiles/zenodo.sql
+
 EOF
 
 cat <<EOF > /etc/cron.daily/zenodo
@@ -54,27 +43,27 @@ cat <<EOF > /etc/cron.hourly/zenodo
 /usr/local/sbin/zenodo_host.sh
 EOF
 
-# Cronjob to point pgadmin to the pgadmin pod
+# Cronjob to point adminer to the adminer pod
 
-cat <<"EOF" > /usr/local/sbin/pgadmin_host.sh
+cat <<"EOF" > /usr/local/sbin/adminer_host.sh
 #!/bin/bash
 
-lbip=`kubectl get pods -o wide | grep -E '^pgadmin ' | awk '{print $6}'`
+lbip=`kubectl get pods -o wide | grep -E '^adminer-' | awk '{print $6}'`
 
-grep "$lbip" /etc/hosts >&/dev/null || sed -i -E "s|^[0-9\.]+\s+(pgadmin)|$lbip\t\1|" /etc/hosts
-grep "pgadmin" /etc/hosts >&/dev/null || echo "$lbip	pgadmin" >> /etc/hosts
+grep "$lbip" /etc/hosts >&/dev/null || sed -i -E "s|^[0-9\.]+\s+(adminer)|$lbip\t\1|" /etc/hosts
+grep "adminer" /etc/hosts >&/dev/null || echo "$lbip	adminer" >> /etc/hosts
 
 EOF
 
-cat <<EOF > /etc/cron.hourly/pgadmin
-/usr/local/bin/pgadmin_host.sh
+cat <<EOF > /etc/cron.hourly/adminer
+/usr/local/bin/adminer.sh
 EOF
 
 chmod +x /usr/local/sbin/zenodo_host.sh /etc/cron.hourly/zenodo /usr/local/sbin/zenodo_backup.sh \
-/etc/cron.daily/zenodo /usr/local/bin/pgadmin_host.sh /etc/cron.hourly/pgadmin
+/etc/cron.daily/zenodo /usr/local/sbin/adminer_host.sh /etc/cron.hourly/adminer
 
 # Caddy needs to be able to update root CA
-cat <<EOF >> /etc/sudoers
+cat <<EOF >> /etc/sudoers.d/caddy
 # Caddy needs this to update /usr/local/share/ca-certificates/
 caddy	ALL=NOPASSWD:ALL
 EOF
@@ -121,58 +110,88 @@ https://sciencerepository.dk {
 		output file /var/log/caddy/zenodo.log
 	}
 }
+EOF
 
-touch /var/log/caddy/zenodo.log
-chown caddy:caddy /var/log/caddy/zenodo.log
-
+cat <<EOF > /etc/caddy/sites/adminer.caddy
 ########################
-### pgadmin
+### adminer
 ### (for sciencerepository)
 ########################
 
 https://kube.sciencedata.dk:9443 {
 	reverse_proxy {
-		to http://pgadmin:80
+		to http://adminer:8080
 	}
 	log {
-		output file /var/log/caddy/pgadmin.log
+		output file /var/log/caddy/adminer.log
 	}
 	encode gzip zstd
 	php_fastcgi unix//run/php/php7.4-fpm.sock
-	@blocked not remote_ip 130.225.245.245 87.73.109.19
+	@blocked not remote_ip 192.38.111.185 130.225.245.245 87.73.109.19
 	respond @blocked "Nope" 403
 }
 EOF
 
-## Fill in email and password, start pgadmin pod with kubectl apply -f /root/pgadmin.yaml,
-## then visit https://kube.sciencedata.dk:9443/login and set DB host to "db", database to "zenodo", db user and password to "zenodo"
+touch /var/log/caddy/zenodo.log
+chown caddy:caddy /var/log/caddy/zenodo.log
 
-cat <<EOF > /root/pgadmin.yaml
-apiVersion: v1
-kind: Pod
+## Fill in user and password, start adminer pod with kubectl apply -f /root/adminer.yaml,
+## then visit https://kube.sciencedata.dk:9443
+## Alternatively, uncomment nodePort in the yaml, delete and apply and then
+## visit https://kube.sciencedata.dk:31000/
+## But notice that this URL is accessible from all IPs.
+
+cat <<EOF > /root/adminer.yaml
+apiVersion: apps/v1
+kind: Deployment
 metadata:
-  name: pgadmin
-  labels:
-    app: pgadmin
+  name: adminer
 spec:
-  containers:
-  - name: pgadmin
-    image: dpage/pgadmin4
-    env:
-    - name: PGADMIN_DEFAULT_EMAIL
-      value: ""
-    - name: PGADMIN_DEFAULT_PASSWORD
-      value: ""
-    ports:
-      - containerPort: 80
+  selector:
+    matchLabels:
+      app: adminer
+  template:
+    metadata:
+      labels:
+        app: adminer
+    spec:
+      containers:
+      - name: adminer
+        image: adminer:4
+        env:
+        # These are not working and have to be
+        # filled in manually in the web interface
+        - name: POSTGRES_DB
+          value: zenodo
+        - name: POSTGRES_USER
+          value: zenodo
+        - name: POSTGRES_PASSWORD
+          value: zenodo
+        ports:
+        - name: http
+          containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adminer
+spec:
+  type: NodePort
+  selector:
+    app: adminer
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+      #nodePort: 31000
 EOF
 
 touch /var/log/zenodo.log
 touch /var/log/nbviewer.log
-touch /var/log/pgadmin.log
+touch /var/log/adminer.log
 touch /var/log/caddy.log
 
-chown caddy /var/log/zenodo.log /var/log/nbviewer.log /var/log/pgadmin.log /var/log/caddy.log
+chown caddy /var/log/zenodo.log /var/log/nbviewer.log /var/log/adminer.log /var/log/caddy.log
 
 # Set up GitHub credentials
 atftp $ADMIN_IP -g -r /freebsd/config/private/github_credentials.sh -l github_credentials.sh
