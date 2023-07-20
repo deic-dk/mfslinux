@@ -43,6 +43,22 @@ cat <<EOF > /etc/cron.hourly/zenodo
 /usr/local/sbin/zenodo_host.sh
 EOF
 
+# Cronjob to point adminer to the celery pod
+
+cat <<"EOF" > /usr/local/sbin/celery_host.sh
+#!/bin/bash
+
+lbip=`kubectl get pods -o wide | grep -E '^blossom-' | awk '{print $6}'`
+
+grep "$lbip" /etc/hosts >&/dev/null || sed -i -E "s|^[0-9\.]+\s+(blossom)|$lbip\t\1|" /etc/hosts
+grep "blossom" /etc/hosts >&/dev/null || echo "$lbip	blossom" >> /etc/hosts
+
+EOF
+
+cat <<EOF > /etc/cron.hourly/adminer
+/usr/local/bin/adminer.sh
+EOF
+
 # Cronjob to point adminer to the adminer pod
 
 cat <<"EOF" > /usr/local/sbin/adminer_host.sh
@@ -112,6 +128,26 @@ https://sciencerepository.dk {
 }
 EOF
 
+cat <<EOF > /etc/caddy/sites/celery.caddy
+########################
+### adminer
+### (for sciencerepository)
+########################
+
+https://kube.sciencedata.dk:5443 {
+	reverse_proxy {
+		to http://blossom:5555
+	}
+	log {
+		output file /var/log/caddy/celery.log
+	}
+	encode gzip zstd
+	php_fastcgi unix//run/php/php7.4-fpm.sock
+	@blocked not remote_ip 192.38.111.185 130.225.245.245 87.73.109.19
+	respond @blocked "Nope" 403
+}
+EOF
+
 cat <<EOF > /etc/caddy/sites/adminer.caddy
 ########################
 ### adminer
@@ -131,9 +167,6 @@ https://kube.sciencedata.dk:9443 {
 	respond @blocked "Nope" 403
 }
 EOF
-
-touch /var/log/caddy/zenodo.log
-chown caddy:caddy /var/log/caddy/zenodo.log
 
 ## Fill in user and password, start adminer pod with kubectl apply -f /root/adminer.yaml,
 ## then visit https://kube.sciencedata.dk:9443
@@ -186,12 +219,13 @@ spec:
       #nodePort: 31000
 EOF
 
-touch /var/log/zenodo.log
-touch /var/log/nbviewer.log
-touch /var/log/adminer.log
-touch /var/log/caddy.log
+touch /var/log/caddy/zenodo.log
+touch /var/log/caddy/nbviewer.log
+touch /var/log/caddy/adminer.log
+touch /var/log/caddy/celery.log
+touch /var/log/caddy/caddy.log
 
-chown caddy /var/log/zenodo.log /var/log/nbviewer.log /var/log/adminer.log /var/log/caddy.log
+chown caddy /var/log/caddy/zenodo.log /var/log/caddy/nbviewer.log /var/log/caddy/adminer.log /var/log/caddy/celery.log /var/log/caddy/caddy.log
 
 # Set up GitHub credentials
 atftp $ADMIN_IP -g -r /freebsd/config/private/github_credentials.sh -l github_credentials.sh
