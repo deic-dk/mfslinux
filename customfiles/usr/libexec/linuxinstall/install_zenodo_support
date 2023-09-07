@@ -9,6 +9,10 @@ SCRIPTDIR=$( dirname -- "$0"; )
 
 $CHROOT $INSTALL_DIR
 
+# Support elasticsearch - see https://stackoverflow.com/questions/51445846/elasticsearch-max-virtual-memory-areas-vm-max-map-count-65530-is-too-low-inc
+sysctl -w vm.max_map_count=262144
+echo 'vm.max_map_count = 262144' >> /etc/sysctl.conf
+
 # This will be mounted onto /var/lib/postgresql in the db pod
 mkdir -p /usr/local/postgresql
 
