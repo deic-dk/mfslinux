@@ -21,7 +21,7 @@ mkdir -p /usr/local/postgresql
 cat <<"EOF" > /usr/local/sbin/zenodo_backup.sh
 #!/bin/bash
 
-kubectl exec -it `kubectl get pods  | grep db- | awk '{print $1}'` -- gosu postgres pg_dump -c -U zenodo zenodo > zenodo.sql
+KUBECONFIG=/etc/kubernetes/admin.conf /usr/bin/kubectl exec -it `kubectl get pods  | grep db- | awk '{print $1}'` -- gosu postgres pg_dump -c -U zenodo zenodo > zenodo.sql
 
 curl --insecure -u cloud: --upload zenodo.sql https://10.0.0.13/files/kubefiles/zenodo.sql
 
