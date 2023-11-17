@@ -253,6 +253,9 @@ if [ "$NODETYPE" == "master" ]; then
 	--cri-socket=unix:///var/run/crio/crio.sock --apiserver-advertise-address=$MY_INTERNAL_IP 2>&1 | \
 	tee init.log
 	
+	# Set bind-address for apiserver
+	sed -i "s|    - --advertise-address=10.0.0.12|    - --advertise-address=10.0.0.12\n    - --bind-address=10.0.0.12|" $INSTALL_DIR/etc/kubernetes/manifests/kube-apiserver.yaml
+	
 	thisdate=`date +%Y-%m-%d`
 
 	# Keep the join commands to add workers and control-plane nodes.

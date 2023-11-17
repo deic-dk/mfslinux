@@ -38,7 +38,7 @@ chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive apt -y install -y netscript-
 netplan.io resolvconf ethtool openssh-client openssh-server net-tools inetutils-tools \
 bind9-dnsutils bind9-host psmisc vim pciutils dkms vlan unicode-data gnupg git golang \
 apt-transport-https wget jq nfs-common ipvsadm caddy python3-pip iputils-ping php-cli php-fpm \
-duplicity zip unzip gcc libxt6 autossh rclone tftp atftp"
+duplicity zip unzip gcc libxt6 autossh rclone tftp atftp tcpd libwrap0 php-yaml"
 
 # We don't need a running caddy unless we're a master
 chroot /mnt systemctl disable caddy
@@ -70,6 +70,9 @@ network:
       dhcp4: yes
 EOF
 echo "ENABLED=1" >> /mnt/etc/default/netplan
+
+# We don't need rpcbind (portmapper) - NFSv4 does not use it
+apt purge --auto-remove rpcbind
 
 # Keep a copy of the install scripts on the installed host
 cp -r /usr/libexec/linuxinstall /mnt/usr/libexec/
