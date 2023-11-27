@@ -21,3 +21,7 @@ tar -xzf $INSTALL_DIR/usr/local/software/Wolfram.tar.gz -C $INSTALL_DIR/usr/loca
 tar -xzf $INSTALL_DIR/usr/local/software/matlab.tar.gz -C $INSTALL_DIR/usr/local/software/
 rm $INSTALL_DIR/usr/local/software/Wolfram.tar.gz
 rm $INSTALL_DIR/usr/local/software/matlab.tar.gz
+
+exec_path=`ls -d $INSTALL_DIR/usr/local/software/Wolfram/Mathematica/*/Executables`
+atftp $ADMIN_IP -g -l $INSTALL_DIR/$exec_path/WolframKernelWrapper -r /kubernetes/WolframKernelWrapper
+chmod +x $INSTALL_DIR/$exec_path/WolframKernelWrapper
