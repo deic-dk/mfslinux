@@ -46,9 +46,6 @@ chmod 644 /mnt/etc/systemd/system/caddy.service
 chroot /mnt systemctl daemon-reload
 chroot /mnt systemctl enable caddy
 
-# Notice that matlab has to be installed by hand - with X available
-# Grab it from "Science Cloud/kubefiles"
-
 # Set timezone
 timedatectl set-timezone Europe/Copenhagen
 
