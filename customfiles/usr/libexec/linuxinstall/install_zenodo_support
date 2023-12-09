@@ -58,8 +58,8 @@ grep "blossom" /etc/hosts >&/dev/null || echo "$lbip	blossom" >> /etc/hosts
 
 EOF
 
-cat <<EOF > /etc/cron.hourly/adminer
-/usr/local/bin/adminer.sh
+cat <<EOF > /etc/cron.hourly/celery
+/usr/local/sbin/celery_host.sh
 EOF
 
 # Cronjob to point adminer to the adminer pod
@@ -75,7 +75,7 @@ grep "adminer" /etc/hosts >&/dev/null || echo "$lbip	adminer" >> /etc/hosts
 EOF
 
 cat <<EOF > /etc/cron.hourly/adminer
-/usr/local/bin/adminer.sh
+/usr/local/sbin/adminer_host.sh
 EOF
 
 # Cronjob to point mq to the rabbitmq pod
@@ -91,7 +91,7 @@ grep "mq" /etc/hosts >&/dev/null || echo "$lbip	mq" >> /etc/hosts
 EOF
 
 cat <<EOF > /etc/cron.hourly/rabbit
-/usr/local/bin/rabbit.sh
+/usr/local/sbin/rabbit_host.sh
 EOF
 
 chmod +x /usr/local/sbin/zenodo_host.sh /etc/cron.hourly/zenodo /usr/local/sbin/zenodo_backup.sh \
