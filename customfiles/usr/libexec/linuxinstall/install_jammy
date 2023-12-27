@@ -38,7 +38,8 @@ chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive apt -y install -y netscript-
 netplan.io resolvconf ethtool openssh-client openssh-server net-tools inetutils-tools \
 bind9-dnsutils bind9-host psmisc vim pciutils dkms vlan unicode-data gnupg git golang \
 apt-transport-https wget jq nfs-common ipvsadm caddy python3-pip iputils-ping php-cli php-fpm \
-duplicity zip unzip gcc libxt6 autossh rclone tftp atftp tcpd libwrap0 php-yaml"
+duplicity zip unzip gcc libxt6 autossh rclone tftp atftp tcpd libwrap0 php-yaml lshw \
+linux-modules-extra-5.15.0-25-generic"
 
 # We don't need a running caddy unless we're a master
 chroot /mnt systemctl disable caddy
@@ -54,6 +55,12 @@ chroot /mnt bash -c "ln -s /proc/self/fd /dev/fd"
 chroot /mnt bash -c "dpkg -i r8168-dkms_8.048.00-1ubuntu0.20.04.2_all.deb"
 
 echo "8021q" >> /mnt/etc/modules
+
+# Fix for nvidia nforce mcp55 forcedeth module - used by x2200 network and disk controller - see https://linuxconfig.org/nvidia-mcp55-forcedeth-module-not-working-with-linux
+echo options forcedeth msi=0 msix=0 >> /mnt/etc/modprobe.d/options
+
+# Fix for samsung nvme disks -see https://askubuntu.com/questions/972200/bios-does-not-detect-ssd-after-reboot-from-ubuntu-16-04-dell-xps-15/1046374#1046374
+sed -E 's|^(GRUB_CMDLINE_LINUX_DEFAULT)="(.*)"$|\1="\2 nvme_load=YES nvme_core.default_ps_max_latency_us=4950"|' /etc/default/grub
 
 # Modules needed by kubernetes
 echo "br_netfilter" >> /mnt/etc/modules
@@ -71,8 +78,23 @@ network:
 EOF
 echo "ENABLED=1" >> /mnt/etc/default/netplan
 
+# Modules needed for disks on x2200's
+echo ataahci >> /mnt/etc/modules
+echo atanvidia >> /mnt/etc/modules
+echo ahci >> /mnt/etc/modules
+echo nvme >> /mnt/etc/modules
+echo sata_nv >> /mnt/etc/modules
+echo forcedeth >> /mnt/etc/modules
+
+echo ataahci >> /mnt/etc/initramfs-tools/modules
+echo atanvidia >> /mnt/etc/initramfs-tools/modules
+echo ahci >> /mnt/etc/initramfs-tools/modules
+echo nvme >> /mnt/etc/initramfs-tools/modules
+echo sata_nv >> /mnt/etc/initramfs-tools/modules
+echo forcedeth >> /mnt/etc/initramfs-tools/modules
+
 # We don't need rpcbind (portmapper) - NFSv4 does not use it
-apt purge --auto-remove rpcbind
+chroot /mnt apt -y purge --auto-remove rpcbind
 
 # Keep a copy of the install scripts on the installed host
 cp -r /usr/libexec/linuxinstall /mnt/usr/libexec/
@@ -85,4 +107,8 @@ firstdisk=`echo "${nvmes[0]} ${disks[0]}" | head -1 | xargs`
 sed -i 's|quiet splash||' /mnt/etc/default/grub
 chroot /mnt grub-install /dev/$firstdisk
 chroot /mnt update-grub
+
+# mkdir -p /mnt/boot/efi/EFI/Microsoft/Boot
+# chroot /mnt mount /dev/sda1 /boot/efi
+# chroot /mnt efibootmgr --create --disk /dev/sda --part 1 --write-signature --loader /EFI/Microsoft/Boot/bootmgfw.efi --label "GRUB" --verbose
 
