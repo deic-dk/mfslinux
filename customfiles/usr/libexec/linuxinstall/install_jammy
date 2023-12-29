@@ -14,7 +14,7 @@ echo "deb http://dk.archive.ubuntu.com/ubuntu jammy universe" >> /mnt/etc/apt/so
 chroot /mnt apt update
 chroot /mnt apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
 #chroot /mnt bash -c "curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/cfg/gpg/gpg.155B6D79CA56EA34.key' | apt-key add -"
-chroot /mnt bash -c "curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg"
+chroot /mnt bash -c "curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor > /usr/share/keyrings/caddy-stable-archive-keyring.gpg"
 chroot /mnt bash -c "curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/cfg/setup/config.deb.txt?distro=debian&version=any-version' | tee -a /etc/apt/sources.list.d/caddy-stable.list"
 chroot /mnt bash -c "setcap cap_net_bind_service=+ep /usr/bin/caddy"
 chroot /mnt apt update
@@ -34,10 +34,10 @@ kernel=`chroot /mnt bash -c "apt search linux-image-unsigned | grep generic | aw
 chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive apt -y install -y $kernel"
 
 # Install packages
-chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive apt -y install -y netscript-2.4 \
+chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive apt install -y netscript-2.4 \
 netplan.io resolvconf ethtool openssh-client openssh-server net-tools inetutils-tools \
 bind9-dnsutils bind9-host psmisc vim pciutils dkms vlan unicode-data gnupg git golang \
-apt-transport-https wget jq nfs-common ipvsadm caddy python3-pip iputils-ping php-cli php-fpm \
+wget jq nfs-common ipvsadm caddy python3-pip iputils-ping php-cli php-fpm \
 duplicity zip unzip gcc libxt6 autossh rclone tftp atftp tcpd libwrap0 php-yaml lshw \
 linux-modules-extra-5.15.0-25-generic"
 

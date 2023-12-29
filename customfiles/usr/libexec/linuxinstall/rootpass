@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 tftp_server_ip=`ip route | grep default | awk '{print $3}'`
 
@@ -7,5 +7,5 @@ chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive echo 'root:mfsroot'|chpasswd
 sed -i 's|^#PermitRootLogin .*|PermitRootLogin yes|' /mnt/etc/ssh/sshd_config
 
 atftp $tftp_server_ip -g -r /ubuntu/config/private/authorized_keys -l authorized_keys
-mkdir "/mnt/root/.ssh"
+ls -d  "/mnt/root/.ssh" || mkdir "/mnt/root/.ssh"
 mv authorized_keys "/mnt/root/.ssh/"
