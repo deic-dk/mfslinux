@@ -14,9 +14,9 @@ SCRIPTDIR=$( dirname -- "$0"; )
 mkdir -p $INSTALL_DIR/usr/local/software
 
 echo "Getting tarballs. This may take a while..."
-atftp $ADMIN_IP -g -l $INSTALL_DIR//usr/local/software/Wolfram.tar.gz -r /kubernetes/Wolfram.tar.gz
+atftp $ADMIN_IP -g -l $INSTALL_DIR/usr/local/software/Wolfram.tar.gz -r /kubernetes/Wolfram.tar.gz
 atftp $ADMIN_IP -g -l $INSTALL_DIR/usr/local/software/matlab.tar.gz -r /kubernetes/matlab.tar.gz
-atftp $ADMIN_IP -g -l $INSTALL_DIR/usr/local/software/matlab.tar.gz -r /kubernetes/extra.tar.gz
+atftp $ADMIN_IP -g -l $INSTALL_DIR/usr/local/software/extra.tar.gz -r /kubernetes/extra.tar.gz
 echo "Unpacking..."
 tar -xzf $INSTALL_DIR/usr/local/software/Wolfram.tar.gz -C $INSTALL_DIR/usr/local/software/
 tar -xzf $INSTALL_DIR/usr/local/software/matlab.tar.gz -C $INSTALL_DIR/usr/local/software/
@@ -24,7 +24,3 @@ tar -xzf $INSTALL_DIR/usr/local/software/extra.tar.gz -C $INSTALL_DIR/usr/local/
 rm $INSTALL_DIR/usr/local/software/Wolfram.tar.gz
 rm $INSTALL_DIR/usr/local/software/matlab.tar.gz
 rm $INSTALL_DIR/usr/local/software/extra.tar.gz
-
-exec_path=`ls -d $INSTALL_DIR/usr/local/software/Wolfram/Mathematica/*/Executables`
-atftp $ADMIN_IP -g -l $INSTALL_DIR/$exec_path/WolframKernelWrapper -r /kubernetes/WolframKernelWrapper
-chmod +x $INSTALL_DIR/$exec_path/WolframKernelWrapper
