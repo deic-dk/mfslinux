@@ -437,7 +437,8 @@ elif [ "$NODETYPE" == "control-plane" ]; then
 	# Get admin.conf and hosts
 	atftp $ADMIN_IP -g -l $INSTALL_DIR/etc/kubernetes/admin.conf -r /kubernetes/admin.conf
 	atftp $ADMIN_IP -g -l hosts -r /kubernetes/hosts
-	$CHROOT $INSTALL_DIR bash -c "tail -1 hosts >> /etc/hosts"
+	master_host=`grep -E '^ *server:' $INSTALL_DIR/etc/kubernetes/admin.conf | sed -E 's|.* https://([^:]*):*[0-9]*$|\1|'`
+	grep $master_host hosts >> $INSTALL_DIR/etc/hosts
 	chmod +x $INSTALL_DIR/root/join_control_plane_node.sh
 	$CHROOT $INSTALL_DIR /root/join_control_plane_node.sh
 ##########################
@@ -450,7 +451,8 @@ elif [ "$NODETYPE" == "worker" ]; then
 	# Get admin.conf and hosts
 	atftp $ADMIN_IP -g -l $INSTALL_DIR/etc/kubernetes/admin.conf -r /kubernetes/admin.conf
 	atftp $ADMIN_IP -g -l hosts -r /kubernetes/hosts
-	$CHROOT $INSTALL_DIR bash -c "tail -1 hosts >> /etc/hosts"
+	master_host=`grep -E '^ *server:' /etc/kubernetes/admin.conf | sed -E 's|.* https://([^:]*):*[0-9]*$|\1|'`
+	grep $master_host hosts >> $INSTALL_DIR/etc/hosts
 	chmod +x $INSTALL_DIR/root/join_worker.sh
 	$CHROOT $INSTALL_DIR /root/join_worker.sh
 fi
