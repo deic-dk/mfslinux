@@ -2,6 +2,8 @@
 
 mac=`ifconfig eth0 | grep HWaddr | awk '{print tolower($NF)}'| sed 's|:|-|g'`
 
+# When installing, the default route will be via the gateway assigned by the dhcp server - typically the dhcp server itself, typically 10.0.0.1
+
 tftp_server_ip=`ip route | grep default | awk '{print $3}'`
 
 # Grab network configuration file if there
@@ -22,12 +24,18 @@ else
 	MY_INTERNAL_IP_NUM=`ifconfig | grep 'inet ' | grep -v 127 | head -1 | awk '{print $2}' | awk -F. '{print $NF}'`
 	HOSTNAME=peon${MY_INTERNAL_IP_NUM}
 	
-	cat <<EOF> /mnt/etc/rc.local
+	cat <<"EOF">> /mnt/etc/rc.local
 #!/bin/bash
 
-interface=\$(ls /sys/class/net | grep -v lo | head -1)
-sed -i "s|eth0|\$interface|" /etc/netplan/01-netcfg.yaml
-netplan apply
+if [ $(grep eth0 /etc/netplan/01-netcfg.yaml) ]; then
+
+	LOCAL_NIC=`ip link | grep ' UP ' | awk -F : '{print $2}' | sed -E 's|^ +||' | while read name; do ls -ld /sys/class/net/$name 2>/dev/null | ( grep -v virtual >&/dev/null ) && echo $name; done | head -1`
+	if [ -n "$LOCAL_NIC" ]; then
+		sed -i "s|eth0|$LOCAL_NIC|" /etc/netplan/01-netcfg.yaml
+	netplan apply
+	fi
+
+fi
 
 EOF
 

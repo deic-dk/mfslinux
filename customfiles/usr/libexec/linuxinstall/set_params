@@ -34,3 +34,21 @@ fi
 
 export MY_INTERNAL_IP_NUM=`echo $MY_INTERNAL_IP | sed -E 's|10\.0\.[0-9]+\.||'`
 
+# Figure out the active network interface
+
+# First try to grab interface assigned 10.0. address from netplan config file
+
+# This only works if the network is actually up
+#ip_num=`ip addr | grep 'inet 10.0.0' | awk '{print $2}' | sed 's|10\.0\.0\.||'`
+#LOCAL_NIC=`ip route | grep 10.0.0.0/24 | awk '{print $3}'`
+
+LOCAL_NIC=`cat /etc/netplan/01-netcfg.yaml | yq -r '.network.ethernets | map_values(select(.addresses[0] | startswith("10.0."))) | to_entries | .[0].key'`
+# If not there,  grab first interface
+if [ -z "$LOCAL_NIC" ]; then
+	LOCAL_NIC=`cat /etc/netplan/01-netcfg.yaml | yq -r '.network.ethernets | to_entries | .[0].key'`
+fi
+# If netplan is not used, take the first interface that's up
+if [ -z "$LOCAL_NIC" ]; then
+	LOCAL_NIC=`ip link | grep ' UP ' | awk -F : '{print $2}' | sed -E 's|^ +||' | while read name; do ls -ld /sys/class/net/$name 2>/dev/null | ( grep -v virtual >&/dev/null ) && echo $name; done | head -1`
+fi
+
