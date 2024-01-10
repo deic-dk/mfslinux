@@ -34,12 +34,13 @@ grep "$nbip" /etc/hosts >&/dev/null || sed -i -E "s|^[0-9\.]+\s+(nbviewer)|$lbip
 grep "$nbip" /etc/hosts >&/dev/null || sed -i -E "s|^<>\s+(nbviewer)|$lbip\t\1|" /etc/hosts
 EOF
 
-chmod +x $INSTALL_DIR/usr/local/sbin/nbviewer_host.sh
-
 ls $INSTALL_DIR/etc/cron.hourly/nbviewer >&/dev/null || \
 cat <<EOF > $INSTALL_DIR/etc/cron.hourly/nbviewer
 /usr/local/bin/nbviewer_host.sh
 EOF
+
+chmod +x $INSTALL_DIR/usr/local/sbin/nbviewer_host.sh \
+$INSTALL_DIR/etc/cron.hourly/nbviewer
 
 ########################
 ### caddy configuration
