@@ -53,8 +53,6 @@ kmod-crypto-user_%%KERNEL_VERSION%%-1_x86_64.ipk
 kmod-mii_%%KERNEL_VERSION%%-1_x86_64.ipk
 kmod-pps_%%KERNEL_VERSION%%-1_x86_64.ipk
 kmod-ptp_%%KERNEL_VERSION%%-1_x86_64.ipk
-kmod-e1000_%%KERNEL_VERSION%%-1_x86_64.ipk
-kmod-e1000e_%%KERNEL_VERSION%%-1_x86_64.ipk
 kmod-libphy_%%KERNEL_VERSION%%-1_x86_64.ipk
 kmod-phy-bcm84881_%%KERNEL_VERSION%%-1_x86_64.ipk
 kmod-phylib-broadcom_%%KERNEL_VERSION%%-1_x86_64.ipk
@@ -67,12 +65,17 @@ kmod-br-netfilter_%%KERNEL_VERSION%%-1_x86_64.ipk
 kmod-mdio_%%KERNEL_VERSION%%-1_x86_64.ipk
 kmod-hwmon-core_%%KERNEL_VERSION%%-1_x86_64.ipk
 kmod-mdio-devres_%%KERNEL_VERSION%%-1_x86_64.ipk
+kmod-i2c-core_%%KERNEL_VERSION%%-1_x86_64.ipk
+kmod-i2c-algo-bit_%%KERNEL_VERSION%%-1_x86_64.ipk
+kmod-e1000_%%KERNEL_VERSION%%-1_x86_64.ipk
+kmod-e1000e_%%KERNEL_VERSION%%-1_x86_64.ipk
+kmod-atl1_%%KERNEL_VERSION%%-1_x86_64.ipk
+kmod-igb_%%KERNEL_VERSION%%-1_x86_64.ipk
 kmod-ixgbe_%%KERNEL_VERSION%%-1_x86_64.ipk
 kmod-tg3_%%KERNEL_VERSION%%-1_x86_64.ipk
 kmod-forcedeth_%%KERNEL_VERSION%%-1_x86_64.ipk
 kmod-ata-core_%%KERNEL_VERSION%%-1_x86_64.ipk
 kmod-ata-ahci_%%KERNEL_VERSION%%-1_x86_64.ipk
-kmod-ata-marvell-sata_%%KERNEL_VERSION%%-1_x86_64.ipk
 kmod-ata-nvidia-sata_%%KERNEL_VERSION%%-1_x86_64.ipk
 kmod-nvme_%%KERNEL_VERSION%%-1_x86_64.ipk
 kmod-fs-efivarfs_%%KERNEL_VERSION%%-1_x86_64.ipk
