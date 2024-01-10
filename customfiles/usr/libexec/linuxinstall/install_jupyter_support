@@ -26,7 +26,7 @@ $CHROOT $INSTALL_DIR kubectl apply -f nbviewer/nbviewer.yaml
 
 # Script and cronjob to point nbviewer to the nbviewer pod
 ls $INSTALL_DIR/usr/local/sbin/nbviewer_host.sh >&/dev/null || \
-cat <<EOF > $INSTALL_DIR/usr/local/sbin/nbviewer_host.sh
+cat <<"EOF" > $INSTALL_DIR/usr/local/sbin/nbviewer_host.sh
 #!/bin/bash
 #nbip=`kubectl get services -o wide | grep -E '^nbviewer ' | awk '{print $3}'`
 nbip=`kubectl get service/nbviewer -o yaml | yq -r .spec.clusterIP`
