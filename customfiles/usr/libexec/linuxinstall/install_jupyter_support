@@ -36,7 +36,7 @@ EOF
 
 ls $INSTALL_DIR/etc/cron.hourly/nbviewer >&/dev/null || \
 cat <<EOF > $INSTALL_DIR/etc/cron.hourly/nbviewer
-/usr/local/bin/nbviewer_host.sh
+/usr/local/sbin/nbviewer_host.sh
 EOF
 
 chmod +x $INSTALL_DIR/usr/local/sbin/nbviewer_host.sh \
