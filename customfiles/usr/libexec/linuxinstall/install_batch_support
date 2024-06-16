@@ -27,6 +27,7 @@ spec:
     metadata:
       labels:
         app: batch-server
+        user: cloud
     spec:
       containers:
       - name: batch-server
@@ -44,6 +45,10 @@ spec:
           value: "10.2.12.1"
         - name: SSL_DN_HEADER
           value: "SSL-Client-DN"
+        - name: TRUSTED_VOS
+          value: "https://sciencedata.dk/sites/batch/vos/anyone.txt"
+        - name: RTE_URLS
+          value: "https://sciencedata.dk/sites/batch/rtes/rtes.xml"
         ports:
         - name: https
           containerPort: 443
@@ -72,7 +77,8 @@ cat <<"EOF" > $INSTALL_DIR/usr/local/sbin/batch_host.sh
 #!/bin/bash
 #!/bin/bash
 
-lbip=`kubectl get pods -o wide | grep -E '^batch-server-' | awk '{print $6}'`
+#lbip=`kubectl get services -o wide | grep -E '^batch ' | awk '{print $3}'`
+lbip=`get_containers cloud | grep batch- | awk -F \| '{print $4}'`
 
 curl https://sciencedata.dk/my_ca_cert.pem -o /etc/ssl/certs/sciencedata.pem
 sciencedata_ca_cert=`openssl x509 -in /etc/ssl/certs/sciencedata.pem -hash | head -1`.0
