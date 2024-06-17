@@ -14,71 +14,51 @@ SCRIPTDIR=$( dirname -- "$0"; )
 # Write YAML
 
 ls $INSTALL_DIR/root/batch_server.yaml >&/dev/null || \
-cat <<EOF > $INSTALL_DIR/root/batch_server.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: batch-server
-spec:
-  selector:
-    matchLabels:
-      app: batch-server
-  template:
-    metadata:
-      labels:
-        app: batch-server
-        user: cloud
-    spec:
-      containers:
-      - name: batch-server
-        image: sciencedata/batch_server
-        env:
-        - name: USERNAME
-          value: 'root'
-        - name: SD_UID
-          value: 'cloud'
-        - name: HOME_SERVER
-          value: ''
-        - name: PUBLIC_HOME_SERVER
-          value: ''
-        - name: ONLY_FROM
-          value: "10.2.12.1"
-        - name: SSL_DN_HEADER
-          value: "SSL-Client-DN"
-        - name: TRUSTED_VOS
-          value: "https://sciencedata.dk/sites/batch/vos/anyone.txt"
-        - name: RTE_URLS
-          value: "https://sciencedata.dk/sites/batch/rtes/rtes.xml"
-        ports:
-        - name: https
-          containerPort: 443
-      #nodeName: peon152
----
+cat <<EOF > $INSTALL_DIR/root/batch_server_pod.yaml
 apiVersion: v1
-kind: Service
+kind: Pod
 metadata:
-  name: batch-server
+  name: batch
+  labels:
+    app: batch
+    user: cloud
 spec:
-  type: NodePort
-  selector:
-    app: batch-server
-  ports:
-    - protocol: TCP
-      port: 443
-      targetPort: 443
+  containers:
+  - name: batch
+    image: sciencedata/batch_server
+    env:
+    - name: USERNAME
+      value: 'root'
+    - name: SD_UID
+      value: 'cloud'
+    - name: HOME_SERVER
+      value: ''
+    - name: PUBLIC_HOME_SERVER
+      value: ''
+    - name: ONLY_FROM
+      value: "10.2.12.1"
+    - name: SSL_DN_HEADER
+      value: "SSL-Client-DN"
+    - name: TRUSTED_VOS
+      value: "https://sciencedata.dk/sites/batch/vos/anyone.txt"
+    - name: RTE_URLS
+      value: "https://sciencedata.dk/sites/batch/rtes/rtes.xml"
+    ports:
+    - name: https
+      containerPort: 443
+  #nodeName: peon152
 EOF
 
 # Deploy the service
-$CHROOT $INSTALL_DIR kubectl apply -f batch_server.yaml
+$CHROOT $INSTALL_DIR kubectl apply -f batch_server_pod.yaml
 
 # Script and cronjob to point batch to the nbviewer pod
 ls $INSTALL_DIR/usr/local/sbin/batch_host.sh >&/dev/null || \
 cat <<"EOF" > $INSTALL_DIR/usr/local/sbin/batch_host.sh
 #!/bin/bash
-#!/bin/bash
 
 #lbip=`kubectl get services -o wide | grep -E '^batch ' | awk '{print $3}'`
-lbip=`get_containers cloud | grep batch- | awk -F \| '{print $4}'`
+lbip=`get_containers cloud | grep '|batch|' | awk -F \| '{print $4}'`
 
 curl https://sciencedata.dk/my_ca_cert.pem -o /etc/ssl/certs/sciencedata.pem
 sciencedata_ca_cert=`openssl x509 -in /etc/ssl/certs/sciencedata.pem -hash | head -1`.0
