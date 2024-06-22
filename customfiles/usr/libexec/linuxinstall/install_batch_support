@@ -57,24 +57,30 @@ ls $INSTALL_DIR/usr/local/sbin/batch_host.sh >&/dev/null || \
 cat <<"EOF" > $INSTALL_DIR/usr/local/sbin/batch_host.sh
 #!/bin/bash
 
-#lbip=`kubectl get services -o wide | grep -E '^batch ' | awk '{print $3}'`
 lbip=`get_containers cloud | grep '|batch|' | awk -F \| '{print $4}'`
 
-curl https://sciencedata.dk/my_ca_cert.pem -o /etc/ssl/certs/sciencedata.pem
-sciencedata_ca_cert=`openssl x509 -in /etc/ssl/certs/sciencedata.pem -hash | head -1`.0
-ln -s sciencedata.pem /etc/ssl/certs/$sciencedata_ca_cert
+#curl https://sciencedata.dk/my_ca_cert.pem -o /etc/ssl/certs/sciencedata.pem
+#sciencedata_ca_cert=`openssl x509 -in /etc/ssl/certs/sciencedata.pem -hash | head -1`.0
+#ln -s sciencedata.pem /etc/ssl/certs/$sciencedata_ca_cert
 
 grep "$lbip" /etc/hosts >&/dev/null || sed -i -E "s|^[0-9\.]+\s+(batch)|$lbip\t\1|" /etc/hosts
 grep "batch" /etc/hosts >&/dev/null || echo "$lbip  batch" >> /etc/hosts
+
+kubectl exec -it batch -- bash -c "ls /root/getssl || curl --silent https://raw.githubusercontent.com/srvrco/getssl/latest/getssl > /root/getssl && chmod 700 /root/getssl"
+kubectl exec -it batch -- bash -c "ls /root/getssl || echo \"ACL=/var/www/grid/data/.well-known/acme-challenge\" >> /root/.getssl/getssl.cfg"
+kubectl exec -it batch -- bash -c "ls /root/getssl || sed -E -i 's|^ *(CA=\"https://acme-staging-v.*\.api\.letsencrypt\.org\")|#\1|' /root/.getssl/getssl.cfg"
+kubectl exec -it batch -- bash -c "ls /root/getssl || sed -E -i 's|^ *#(CA=\"https://acme-v.*\.api\.letsencrypt\.org\")|\1|' /root/.getssl/getssl.cfg"
+kubectl exec -it batch -- /root/getssl batch.sciencedata.dk
+
 EOF
 
-ls $INSTALL_DIR/etc/cron.hourly/batch >&/dev/null || \
-cat <<EOF > $INSTALL_DIR/etc/cron.hourly/batch
+ls $INSTALL_DIR/etc/cron.daily/batch >&/dev/null || \
+cat <<EOF > $INSTALL_DIR/etc/cron.daily/batch
 /usr/local/sbin/batch_host.sh
 EOF
 
 chmod +x $INSTALL_DIR/usr/local/sbin/batch_host.sh \
-$INSTALL_DIR/etc/cron.hourly/batch
+$INSTALL_DIR/etc/cron.daily/batch
 
 ########################
 ### caddy configuration
@@ -114,6 +120,12 @@ https://batch.sciencedata.dk:443 {
   respond @blocked "Nope" 403
 }
 
+http://batch.sciencedata.dk:80 {
+  reverse_proxy http://batch:80 {
+    #header_up -SSL-Client-DN
+    header_up SSL-Client-DN {http.request.tls.client.subject}
+  }
+}
 
 EOF
 
