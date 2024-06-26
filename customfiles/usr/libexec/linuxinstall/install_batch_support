@@ -66,11 +66,17 @@ lbip=`get_containers cloud | grep '|batch|' | awk -F \| '{print $4}'`
 grep "$lbip" /etc/hosts >&/dev/null || sed -i -E "s|^[0-9\.]+\s+(batch)|$lbip\t\1|" /etc/hosts
 grep "batch" /etc/hosts >&/dev/null || echo "$lbip  batch" >> /etc/hosts
 
+kubectl exec -it batch -- bash -c "ls /root/getssl || sed -E -i 's|^CERTIFICATE_FILE *=.*|CERTIFICATE_FILE = /root/.getssl/batch.sciencedata.dk/fullchain.crt|' /etc/gridfactory.conf"
+kubectl exec -it batch -- bash -c "ls /root/getssl || sed -E -i 's|^KEY_FILE *=.*|KEY_FILE = /root/.getssl/batch.sciencedata.dk/batch.sciencedata.dk.key.enc|' /etc/gridfactory.conf"
 kubectl exec -it batch -- bash -c "ls /root/getssl || curl --silent https://raw.githubusercontent.com/srvrco/getssl/latest/getssl > /root/getssl && chmod 700 /root/getssl"
-kubectl exec -it batch -- bash -c "ls /root/getssl || echo \"ACL=/var/www/grid/data/.well-known/acme-challenge\" >> /root/.getssl/getssl.cfg"
-kubectl exec -it batch -- bash -c "ls /root/getssl || sed -E -i 's|^ *(CA=\"https://acme-staging-v.*\.api\.letsencrypt\.org\")|#\1|' /root/.getssl/getssl.cfg"
-kubectl exec -it batch -- bash -c "ls /root/getssl || sed -E -i 's|^ *#(CA=\"https://acme-v.*\.api\.letsencrypt\.org\")|\1|' /root/.getssl/getssl.cfg"
-kubectl exec -it batch -- /root/getssl batch.sciencedata.dk
+kubectl exec -it batch -- bash -c "ls /root/.getssl/getssl.cfg || ( mkdir  /root/.getssl && echo \"ACL=/var/www/grid/data/.well-known/acme-challenge\" > /root/.getssl/getssl.cfg && echo \"CA=https://acme-v01.api.letsencrypt.org\" >> /root/.getssl/getssl.cfg )"
+kubectl exec -it batch -- bash -c "sed -E -i 's|^ *(CA=\"https://acme-staging-v.*\.api\.letsencrypt\.org\")|#\1|' /root/.getssl/getssl.cfg"
+kubectl exec -it batch -- bash -c "sed -E -i 's|^ *#(CA=\"https://acme-v.*\.api\.letsencrypt\.org\")|\1|' /root/.getssl/getssl.cfg"
+kubectl exec -it batch -- bash -c "/root/getssl batch.sciencedata.dk"
+kubectl exec -it batch -- bash -c "openssl rsa -des3 -in /root/.getssl/batch.sciencedata.dk/batch.sciencedata.dk.key -passin pass: -passout pass:grid > /root/.getssl/batch.sciencedata.dk/batch.sciencedata.dk.key.enc"
+kubectl exec -it batch -- bash -c "chmod go+rx /root/; chown -R www-data:www-data /root/.getssl/batch.sciencedata.dk"
+kubectl exec -it batch -- bash -c "service queuemanager restart"
+kubectl exec -it batch -- bash -c "service spoolmanager restart"
 
 EOF
 
