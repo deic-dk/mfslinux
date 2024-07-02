@@ -57,14 +57,44 @@ ls $INSTALL_DIR/usr/local/sbin/batch_host.sh >&/dev/null || \
 cat <<"EOF" > $INSTALL_DIR/usr/local/sbin/batch_host.sh
 #!/bin/bash
 
-lbip=`get_containers cloud | grep '|batch|' | awk -F \| '{print $4}'`
+lbip=`get_containers cloud 2>/dev/null | grep '|batch|' | awk -F \| '{print $4}'`
+
+grep "$lbip" /etc/hosts >&/dev/null || sed -i -E "s|^[0-9\.]+\s+(batch)|$lbip\t\1|" /etc/hosts
+grep "batch" /etc/hosts >&/dev/null || echo "$lbip  batch" >> /etc/hosts
+
+EOF
+
+ls $INSTALL_DIR/usr/local/sbin/batch_cert.sh >&/dev/null || \
+cat <<"EOF" > $INSTALL_DIR/usr/local/sbin/batch_cert.sh
+#!/bin/bash
 
 #curl https://sciencedata.dk/my_ca_cert.pem -o /etc/ssl/certs/sciencedata.pem
 #sciencedata_ca_cert=`openssl x509 -in /etc/ssl/certs/sciencedata.pem -hash | head -1`.0
 #ln -s sciencedata.pem /etc/ssl/certs/$sciencedata_ca_cert
 
-grep "$lbip" /etc/hosts >&/dev/null || sed -i -E "s|^[0-9\.]+\s+(batch)|$lbip\t\1|" /etc/hosts
-grep "batch" /etc/hosts >&/dev/null || echo "$lbip  batch" >> /etc/hosts
+mkdir /root/batch
+
+kubectl exec -it batch -- ls /root/.getssl/batch.sciencedata.dk/fullchain.crt >& /dev/null && \
+kubectl cp batch:/root/.getssl/batch.sciencedata.dk/fullchain.crt /root/batch/fullchain.crt
+kubectl exec -it batch -- ls /root/.getssl/batch.sciencedata.dk/batch.sciencedata.dk.key.enc >& /dev/null && \
+kubectl cp batch:/root/.getssl/batch.sciencedata.dk/batch.sciencedata.dk.key.enc /root/batch/batch.sciencedata.dk.key.enc
+
+if [ -e "/root/batch/fullchain.crt" ]; then
+  if openssl x509 -checkend 192800 -noout -in /root/batch/fullchain.crt; then
+    echo "Certificate is good for another two days!"
+    
+    kubectl exec -it batch -- ls /root/.getssl/batch.sciencedata.dk/fullchain.crt >& /dev/null || \
+    kubectl cp /root/batch/fullchain.crt batch:/root/.getssl/batch.sciencedata.dk/fullchain.crt
+    
+    kubectl exec -it batch -- ls /root/.getssl/batch.sciencedata.dk/batch.sciencedata.dk.key.enc >& /dev/null || \
+    kubectl cp /root/batch/batch.sciencedata.dk.key.enc batch:/root/.getssl/batch.sciencedata.dk/batch.sciencedata.dk.key.enc
+    
+    exit 0
+  else
+    echo "Certificate has expired or will do so within 24 hours!"
+    echo "(or is invalid/not found)"
+  fi
+fi
 
 kubectl exec -it batch -- bash -c "ls /root/getssl || sed -E -i 's|^CERTIFICATE_FILE *=.*|CERTIFICATE_FILE = /root/.getssl/batch.sciencedata.dk/fullchain.crt|' /etc/gridfactory.conf"
 kubectl exec -it batch -- bash -c "ls /root/getssl || sed -E -i 's|^KEY_FILE *=.*|KEY_FILE = /root/.getssl/batch.sciencedata.dk/batch.sciencedata.dk.key.enc|' /etc/gridfactory.conf"
@@ -75,18 +105,23 @@ kubectl exec -it batch -- bash -c "sed -E -i 's|^ *#(CA=\"https://acme-v.*\.api\
 kubectl exec -it batch -- bash -c "/root/getssl batch.sciencedata.dk"
 kubectl exec -it batch -- bash -c "openssl rsa -des3 -in /root/.getssl/batch.sciencedata.dk/batch.sciencedata.dk.key -passin pass: -passout pass:grid > /root/.getssl/batch.sciencedata.dk/batch.sciencedata.dk.key.enc"
 kubectl exec -it batch -- bash -c "chmod go+rx /root/; chown -R www-data:www-data /root/.getssl/batch.sciencedata.dk"
-kubectl exec -it batch -- bash -c "service queuemanager restart"
-kubectl exec -it batch -- bash -c "service spoolmanager restart"
+kubectl exec -it batch -- bash -c "service spoolmanager restart || service spoolmanager restart"
+kubectl exec -it batch -- bash -c "service queuemanager restart || service queuemanager restart"
 
 EOF
 
-ls $INSTALL_DIR/etc/cron.daily/batch >&/dev/null || \
-cat <<EOF > $INSTALL_DIR/etc/cron.daily/batch
+ls $INSTALL_DIR/etc/cron.hourly/batch >&/dev/null || \
+cat <<EOF > $INSTALL_DIR/etc/cron.hourly/batch_host
 /usr/local/sbin/batch_host.sh
 EOF
 
-chmod +x $INSTALL_DIR/usr/local/sbin/batch_host.sh \
-$INSTALL_DIR/etc/cron.daily/batch
+ls $INSTALL_DIR/etc/cron.daily/batch >&/dev/null || \
+cat <<EOF > $INSTALL_DIR/etc/cron.daily/batch_cert
+/usr/local/sbin/batch_cert.sh
+EOF
+
+chmod +x $INSTALL_DIR/usr/local/sbin/batch_host.sh $INSTALL_DIR/usr/local/sbin/batch_cert.sh \
+$INSTALL_DIR/etc/cron.daily/batch_host $INSTALL_DIR/etc/cron.daily/batch_cert
 
 ########################
 ### caddy configuration
