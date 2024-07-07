@@ -444,6 +444,18 @@ elif [ "$NODETYPE" == "control-plane" ]; then
 	grep $master_host hosts >> $INSTALL_DIR/etc/hosts
 	chmod +x $INSTALL_DIR/root/join_control_plane_node.sh
 	$CHROOT $INSTALL_DIR /root/join_control_plane_node.sh
+	###
+	## NVIDIA support
+	# Although this node will not run gpu workloads, this is necessary to support scheduling to nvidia runtimes
+	###
+	ls /usr/bin/nvidia-container-runtime || \
+	curl --insecure -u cloud: https://10.0.0.13/files/kubefiles/nvidia-container-runtime \
+	/usr/bin/nvidia-container-runtime
+	grep crio\.runtime\.runtimes\.nvidia /etc/crio/crio.conf || \
+	sed -i  -E "s|(\[crio\.runtime\])|\1\n[crio.runtime.runtimes.nvidia]\n\
+   runtime_path = \"/usr/bin/nvidia-container-runtime\"\n\
+   runtime_type = \"oci\"|" /etc/crio/crio.conf
+	
 ##########################
 ### worker node
 ##########################

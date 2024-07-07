@@ -72,23 +72,35 @@ cat <<"EOF" > $INSTALL_DIR/usr/local/sbin/batch_cert.sh
 #sciencedata_ca_cert=`openssl x509 -in /etc/ssl/certs/sciencedata.pem -hash | head -1`.0
 #ln -s sciencedata.pem /etc/ssl/certs/$sciencedata_ca_cert
 
-mkdir /root/batch
+GETSSL_DIR=/root/.getssl
+LOCAL_DIR=/root/batch_certificates
 
-kubectl exec -it batch -- ls /root/.getssl/batch.sciencedata.dk/fullchain.crt >& /dev/null && \
-kubectl cp batch:/root/.getssl/batch.sciencedata.dk/fullchain.crt /root/batch/fullchain.crt
-kubectl exec -it batch -- ls /root/.getssl/batch.sciencedata.dk/batch.sciencedata.dk.key.enc >& /dev/null && \
-kubectl cp batch:/root/.getssl/batch.sciencedata.dk/batch.sciencedata.dk.key.enc /root/batch/batch.sciencedata.dk.key.enc
+[ -d "$LOCAL_DIR" ] || mkdir $LOCAL_DIR
+kubectl exec -it batch -- mkdir -p $GETSSL_DIR/batch.sciencedata.dk
 
-if [ -e "/root/batch/fullchain.crt" ]; then
-  if openssl x509 -checkend 192800 -noout -in /root/batch/fullchain.crt; then
-    echo "Certificate is good for another two days!"
-    
-    kubectl exec -it batch -- ls /root/.getssl/batch.sciencedata.dk/fullchain.crt >& /dev/null || \
-    kubectl cp /root/batch/fullchain.crt batch:/root/.getssl/batch.sciencedata.dk/fullchain.crt
-    
-    kubectl exec -it batch -- ls /root/.getssl/batch.sciencedata.dk/batch.sciencedata.dk.key.enc >& /dev/null || \
-    kubectl cp /root/batch/batch.sciencedata.dk.key.enc batch:/root/.getssl/batch.sciencedata.dk/batch.sciencedata.dk.key.enc
-    
+for file in batch.sciencedata.dk.crt batch.sciencedata.dk.csr batch.sciencedata.dk.key batch.sciencedata.dk.key.enc chain.crt  fullchain.crt; do
+
+  # If file is present in container, copy it to local dir
+  kubectl exec -it batch -- ls $GETSSL_DIR/batch.sciencedata.dk/$file >& /dev/null && \
+  kubectl cp batch:$GETSSL_DIR/batch.sciencedata.dk/$file $LOCAL_DIR/$file
+
+  # If file is not present in container, and present locally, copy it to container
+  kubectl exec -it batch -- ls $GETSSL_DIR/batch.sciencedata.dk/$file >& /dev/null || \
+  ( [ -s "$LOCAL_DIR/$file" ] && kubectl cp $LOCAL_DIR/$file batch:$GETSSL_DIR/batch.sciencedata.dk/$file )
+
+done
+
+kubectl exec -it batch -- bash -c "grep $GETSSL_DIR/batch.sciencedata.dk/fullchain.crt /etc/gridfactory.conf || sed -E -i 's|^CERTIFICATE_FILE *=.*|CERTIFICATE_FILE = $GETSSL_DIR/batch.sciencedata.dk/fullchain.crt|' /etc/gridfactory.conf"
+kubectl exec -it batch -- bash -c "grep $GETSSL_DIR/batch.sciencedata.dk/batch.sciencedata.dk.key.enc /etc/gridfactory.conf || sed -E -i 's|^KEY_FILE *=.*|KEY_FILE = $GETSSL_DIR/batch.sciencedata.dk/batch.sciencedata.dk.key.enc|' /etc/gridfactory.conf"
+
+# Restart - in case this was a fresh pod and cert/key were copied over
+kubectl exec -it batch -- bash -c "chmod go+rx /root/; chown -R www-data:www-data $GETSSL_DIR"
+kubectl exec -it batch -- bash -c "set -m; service spoolmanager restart; service spoolmanager status"
+kubectl exec -it batch -- bash -c "set -m; service queuemanager restart; service queuemanager status"
+
+if [ -e "$LOCAL_DIR/fullchain.crt" ]; then
+  if openssl x509 -checkend 192800 -noout -in "$LOCAL_DIR/fullchain.crt"; then
+    echo "Certificate is good for at least another two days!"
     exit 0
   else
     echo "Certificate has expired or will do so within 24 hours!"
@@ -96,17 +108,31 @@ if [ -e "/root/batch/fullchain.crt" ]; then
   fi
 fi
 
-kubectl exec -it batch -- bash -c "ls /root/getssl || sed -E -i 's|^CERTIFICATE_FILE *=.*|CERTIFICATE_FILE = /root/.getssl/batch.sciencedata.dk/fullchain.crt|' /etc/gridfactory.conf"
-kubectl exec -it batch -- bash -c "ls /root/getssl || sed -E -i 's|^KEY_FILE *=.*|KEY_FILE = /root/.getssl/batch.sciencedata.dk/batch.sciencedata.dk.key.enc|' /etc/gridfactory.conf"
 kubectl exec -it batch -- bash -c "ls /root/getssl || curl --silent https://raw.githubusercontent.com/srvrco/getssl/latest/getssl > /root/getssl && chmod 700 /root/getssl"
-kubectl exec -it batch -- bash -c "ls /root/.getssl/getssl.cfg || ( mkdir  /root/.getssl && echo \"ACL=/var/www/grid/data/.well-known/acme-challenge\" > /root/.getssl/getssl.cfg && echo \"CA=https://acme-v01.api.letsencrypt.org\" >> /root/.getssl/getssl.cfg )"
-kubectl exec -it batch -- bash -c "sed -E -i 's|^ *(CA=\"https://acme-staging-v.*\.api\.letsencrypt\.org\")|#\1|' /root/.getssl/getssl.cfg"
-kubectl exec -it batch -- bash -c "sed -E -i 's|^ *#(CA=\"https://acme-v.*\.api\.letsencrypt\.org\")|\1|' /root/.getssl/getssl.cfg"
+kubectl exec -it batch -- bash -c "ls $GETSSL_DIR/getssl.cfg || ( mkdir  $GETSSL_DIR && echo \"ACL=/var/www/grid/data/.well-known/acme-challenge\" > $GETSSL_DIR/getssl.cfg && echo \"CA=https://acme-v01.api.letsencrypt.org\" >> $GETSSL_DIR/getssl.cfg )"
+kubectl exec -it batch -- bash -c "sed -E -i 's|^ *(CA=\"https://acme-staging-v.*\.api\.letsencrypt\.org\")|#\1|' $GETSSL_DIR/getssl.cfg"
+
+kubectl exec -it batch -- bash -c "sed -E -i 's|^ *#(CA=\"https://acme-v.*\.api\.letsencrypt\.org\")|\1|' $GETSSL_DIR/getssl.cfg"
 kubectl exec -it batch -- bash -c "/root/getssl batch.sciencedata.dk"
-kubectl exec -it batch -- bash -c "openssl rsa -des3 -in /root/.getssl/batch.sciencedata.dk/batch.sciencedata.dk.key -passin pass: -passout pass:grid > /root/.getssl/batch.sciencedata.dk/batch.sciencedata.dk.key.enc"
-kubectl exec -it batch -- bash -c "chmod go+rx /root/; chown -R www-data:www-data /root/.getssl/batch.sciencedata.dk"
-kubectl exec -it batch -- bash -c "service spoolmanager restart || service spoolmanager restart"
-kubectl exec -it batch -- bash -c "service queuemanager restart || service queuemanager restart"
+kubectl exec -it batch -- bash -c "openssl rsa -des3 -in $GETSSL_DIR/batch.sciencedata.dk/batch.sciencedata.dk.key -passin pass: -passout pass:grid > $GETSSL_DIR/batch.sciencedata.dk/batch.sciencedata.dk.key.enc"
+kubectl exec -it batch -- bash -c "chmod go+rx /root/; chown -R www-data:www-data $GETSSL_DIR/batch.sciencedata.dk"
+
+kubectl exec -it batch -- bash -c "set -m; service spoolmanager restart; service spoolmanager status"
+kubectl exec -it batch -- bash -c "set -m; service queuemanager restart; service queuemanager status"
+
+kubectl exec -it batch -- ls $GETSSL_DIR/batch.sciencedata.dk/fullchain.crt >& /dev/null && \
+kubectl cp batch:$GETSSL_DIR/batch.sciencedata.dk/fullchain.crt /root/batch/fullchain.crt
+
+kubectl exec -it batch -- ls $GETSSL_DIR/batch.sciencedata.dk/batch.sciencedata.dk.key.enc >& /dev/null && \
+kubectl cp batch:$GETSSL_DIR/batch.sciencedata.dk/batch.sciencedata.dk.key.enc /root/batch/batch.sciencedata.dk.key.enc
+
+for file in batch.sciencedata.dk.crt batch.sciencedata.dk.csr batch.sciencedata.dk.key batch.sciencedata.dk.key.enc chain.crt  fullchain.crt; do
+
+# If file is present in container, copy it to local dir
+kubectl exec -it batch -- ls $GETSSL_DIR/$file >& /dev/null && \
+kubectl cp batch:$GETSSL_DIR/$file $LOCAL_DIR/$file
+
+done
 
 EOF
 
