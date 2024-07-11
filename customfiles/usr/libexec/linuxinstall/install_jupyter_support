@@ -30,8 +30,9 @@ cat <<"EOF" > $INSTALL_DIR/usr/local/sbin/nbviewer_host.sh
 #!/bin/bash
 #nbip=`kubectl get services -o wide | grep -E '^nbviewer ' | awk '{print $3}'`
 nbip=`kubectl get service/nbviewer -o yaml | yq -r .spec.clusterIP`
-grep "$nbip" /etc/hosts >&/dev/null || sed -i -E "s|^[0-9\.]+\s+(nbviewer)|$lbip\t\1|" /etc/hosts
-grep "$nbip" /etc/hosts >&/dev/null || sed -i -E "s|^<>\s+(nbviewer)|$lbip\t\1|" /etc/hosts
+grep "$nbip" /etc/hosts >&/dev/null || sed -i -E "s|^[0-9\.]+\s+(nbviewer)|$nbip\t\1|" /etc/hosts
+grep "$nbip" /etc/hosts >&/dev/null || sed -i -E "s|^<>\s+(nbviewer)|$nbip\t\1|" /etc/hosts
+grep "$nbip" /etc/hosts >&/dev/null || sed -i -E "s|^\s+(nbviewer)|$nbip\t\1|" /etc/hosts
 EOF
 
 ls $INSTALL_DIR/etc/cron.hourly/nbviewer >&/dev/null || \
