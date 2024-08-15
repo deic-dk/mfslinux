@@ -22,7 +22,7 @@ cat <<"EOF" > /usr/local/sbin/zenodo_backup.sh
 #!/bin/sh
 KUBECONFIG=/etc/kubernetes/admin.conf
 export KUBECONFIG
-/usr/bin/kubectl exec -it `/usr/bin/kubectl get pods  | grep db- | awk '{print $1}'` -- gosu postgres pg_dump -c -U zenodo zenodo > /tmp/zenodo.sql
+/usr/bin/kubectl exec -it `/usr/bin/kubectl get pods  | grep ^db- | awk '{print $1}'` -- gosu postgres pg_dump -c -U zenodo zenodo > /tmp/zenodo.sql
 curl --insecure -u cloud: --upload /tmp/zenodo.sql https://10.0.0.13/files/kubefiles/zenodo.sql
 EOF
 

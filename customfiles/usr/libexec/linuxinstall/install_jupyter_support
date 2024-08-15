@@ -48,9 +48,9 @@ $INSTALL_DIR/etc/cron.hourly/nbviewer
 ########################
 
 # We're assuming a running caddy has already been configured.
-ls $INSTALL_DIR/etc/caddy/caddy/sites || mkdir $INSTALL_DIR/etc/caddy/caddy/sites
-ls $INSTALL_DIR/etc/caddy/caddy/sites/sciencenotebooks.caddy >&/dev/null || \
-cat <<EOF > $INSTALL_DIR/etc/caddy/caddy/sites/sciencenotebooks.caddy
+ls $INSTALL_DIR/etc/caddy/sites || mkdir $INSTALL_DIR/etc/caddy/sites
+ls $INSTALL_DIR/etc/caddy/sites/sciencenotebooks.caddy >&/dev/null || \
+cat <<EOF > $INSTALL_DIR/etc/caddy/sites/sciencenotebooks.caddy
 
 ### nbviewer ###
 

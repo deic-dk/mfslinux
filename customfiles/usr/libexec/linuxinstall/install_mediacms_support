@@ -1,0 +1,86 @@
+#!/bin/bash
+
+########################
+### Set variables
+########################
+SCRIPTDIR=$( dirname -- "$0"; )
+. "$SCRIPTDIR/set_params"
+########################
+
+########################
+### Deploy services
+########################
+
+# Grab manifests from our github repo
+$CHROOT $INSTALL_DIR git clone https://github.com/deic-dk/mediacms_deployment.git
+
+# Deploy the services
+$CHROOT $INSTALL_DIR bash -c "cd mediacms_deployment; kubectl apply -f volumes.yaml; kubectl apply -f redis.yaml; kubectl apply -f db.yaml; kubectl apply -f web.yaml"
+
+# Delete services with
+# kubectl delete -f web.yaml ; kubectl delete -f db.yaml ; kubectl delete -f redis.yaml ; kubectl delete -f volumes.yaml
+
+# Script and cronjob to point to the mediaweb service
+ls $INSTALL_DIR/usr/local/sbin/mediaweb_host.sh >&/dev/null || \
+cat <<"EOF" > $INSTALL_DIR/usr/local/sbin/mediaweb_host.sh
+#!/bin/bash
+#nbip=`kubectl get services -o wide | grep -E '^mediaweb ' | awk '{print $3}'`
+nbip=`kubectl get service/mediaweb -o yaml | yq -r .spec.clusterIP`
+grep "$nbip" /etc/hosts >&/dev/null || echo -e "1.2.3.4\tmediaweb" >> /etc/hosts
+grep "$nbip" /etc/hosts >&/dev/null || sed -i -E "s|^[0-9\.]+\s+(mediaweb)|$nbip\t\1|" /etc/hosts
+grep "$nbip" /etc/hosts >&/dev/null || sed -i -E "s|^<>\s+(mediaweb)|$nbip\t\1|" /etc/hosts
+grep "$nbip" /etc/hosts >&/dev/null || sed -i -E "s|^\s+(mediaweb)|$nbip\t\1|" /etc/hosts
+EOF
+
+ls $INSTALL_DIR/etc/cron.hourly/mediaweb >&/dev/null || \
+cat <<EOF > $INSTALL_DIR/etc/cron.hourly/mediaweb
+/usr/local/sbin/mediaweb_host.sh
+EOF
+
+# This will be mounted onto /var/lib/postgresql in the db pod
+mkdir -p /usr/local/postgresql
+
+# We back it up to sciencedata every night.
+
+cat <<"EOF" > /usr/local/sbin/mediacms_backup.sh
+#!/bin/sh
+KUBECONFIG=/etc/kubernetes/admin.conf
+export KUBECONFIG
+/usr/bin/kubectl exec -it `/usr/bin/kubectl get pods  | grep ^mediadb- | awk '{print $1}'` -- gosu postgres pg_dump -c -U mediacms mediacms > /tmp/mediacms.sql
+curl --insecure -u mediacms: --upload /tmp/mediacms.sql https://10.0.0.18/storage/db_backup/mediacms.sql
+EOF
+
+cat <<EOF > /etc/cron.daily/mediaweb
+/usr/local/sbin/mediaweb_backup.sh
+EOF
+
+chmod +x $INSTALL_DIR/usr/local/sbin/mediaweb_host.sh \
+$INSTALL_DIR/etc/cron.hourly/mediaweb
+
+########################
+### caddy configuration
+########################
+
+# We're assuming a running caddy has already been configured.
+ls $INSTALL_DIR/etc/caddy/sites || mkdir $INSTALL_DIR/etc/caddy/sites
+ls $INSTALL_DIR/etc/caddy/sites/mediaweb.caddy >&/dev/null || \
+cat <<EOF > $INSTALL_DIR/etc/caddy/sites/mediaweb.caddy
+### media.sciencedata.dk ###
+
+http://media.sciencedata.dk {
+  redir https://media.sciencedata.dk{uri}
+}
+
+https://media.sciencedata.dk:443 {
+	reverse_proxy {
+		to http://mediaweb:8000
+	}
+	log {
+		output file /var/log/caddy/mediaweb.log
+	}
+}
+
+EOF
+
+touch $INSTALL_DIR/var/log/caddy/mediaweb.log
+$CHROOT $INSTALL_DIR bash -c "chown caddy:caddy /var/log/caddy/mediaweb.log"
