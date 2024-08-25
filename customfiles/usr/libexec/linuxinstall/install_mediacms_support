@@ -26,7 +26,7 @@ cat <<"EOF" > $INSTALL_DIR/usr/local/sbin/mediaweb_host.sh
 #!/bin/bash
 #nbip=`kubectl get services -o wide | grep -E '^mediaweb ' | awk '{print $3}'`
 nbip=`kubectl get service/mediaweb -o yaml | yq -r .spec.clusterIP`
-grep "$nbip" /etc/hosts >&/dev/null || echo -e "1.2.3.4\tmediaweb" >> /etc/hosts
+grep "mediaweb" /etc/hosts >&/dev/null || echo -e "1.2.3.4\tmediaweb" >> /etc/hosts
 grep "$nbip" /etc/hosts >&/dev/null || sed -i -E "s|^[0-9\.]+\s+(mediaweb)|$nbip\t\1|" /etc/hosts
 grep "$nbip" /etc/hosts >&/dev/null || sed -i -E "s|^<>\s+(mediaweb)|$nbip\t\1|" /etc/hosts
 grep "$nbip" /etc/hosts >&/dev/null || sed -i -E "s|^\s+(mediaweb)|$nbip\t\1|" /etc/hosts
