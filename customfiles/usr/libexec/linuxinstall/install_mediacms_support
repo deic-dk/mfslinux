@@ -26,10 +26,16 @@ cat <<"EOF" > $INSTALL_DIR/usr/local/sbin/mediaweb_host.sh
 #!/bin/bash
 #nbip=`kubectl get services -o wide | grep -E '^mediaweb ' | awk '{print $3}'`
 nbip=`kubectl get service/mediaweb -o yaml | yq -r .spec.clusterIP`
-grep "mediaweb" /etc/hosts >&/dev/null || echo -e "1.2.3.4\tmediaweb" >> /etc/hosts
-grep "$nbip" /etc/hosts >&/dev/null || sed -i -E "s|^[0-9\.]+\s+(mediaweb)|$nbip\t\1|" /etc/hosts
-grep "$nbip" /etc/hosts >&/dev/null || sed -i -E "s|^<>\s+(mediaweb)|$nbip\t\1|" /etc/hosts
-grep "$nbip" /etc/hosts >&/dev/null || sed -i -E "s|^\s+(mediaweb)|$nbip\t\1|" /etc/hosts
+grep -E "\smediaweb$" /etc/hosts >&/dev/null || echo -e "1.2.3.4\tmediaweb" >> /etc/hosts
+grep "$nbip" /etc/hosts >&/dev/null || sed -i -E "s|^[0-9\.]+\s+(mediaweb)$|$nbip\t\1|" /etc/hosts
+grep "$nbip" /etc/hosts >&/dev/null || sed -i -E "s|^<>\s+(mediaweb)$|$nbip\t\1|" /etc/hosts
+grep "$nbip" /etc/hosts >&/dev/null || sed -i -E "s|^\s+(mediaweb)$|$nbip\t\1|" /etc/hosts
+
+nbip=`kubectl get service/mediaweb1 -o yaml | yq -r .spec.clusterIP`
+grep -E "\smediaweb1$" /etc/hosts >&/dev/null || echo -e "1.2.3.4\tmediaweb1" >> /etc/hosts
+grep "$nbip" /etc/hosts >&/dev/null || sed -i -E "s|^[0-9\.]+\s+(mediaweb1)$|$nbip\t\1|" /etc/hosts
+grep "$nbip" /etc/hosts >&/dev/null || sed -i -E "s|^<>\s+(mediaweb1)$|$nbip\t\1|" /etc/hosts
+grep "$nbip" /etc/hosts >&/dev/null || sed -i -E "s|^\s+(mediaweb1)$|$nbip\t\1|" /etc/hosts
 EOF
 
 ls $INSTALL_DIR/etc/cron.hourly/mediaweb >&/dev/null || \
@@ -78,6 +84,19 @@ https://media.sciencedata.dk:443 {
 	log {
 		output file /var/log/caddy/mediaweb.log
 	}
+}
+
+http://media-ingress.sciencedata.dk {
+  redir https://media-ingress.sciencedata.dk{uri}
+}
+
+https://media-ingress.sciencedata.dk:443 {
+  reverse_proxy {
+    to http://mediaweb1:8000
+  }
+  log {
+    output file /var/log/caddy/mediaweb.log
+  }
 }
 
 EOF
