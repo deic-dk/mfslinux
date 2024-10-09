@@ -48,11 +48,11 @@ mkdir -p /usr/local/postgresql
 
 # We back it up to sciencedata every night.
 
-cat <<"EOF" > /usr/local/sbin/mediacms_backup.sh
+cat <<"EOF" > /usr/local/sbin/mediaweb_backup.sh
 #!/bin/sh
 KUBECONFIG=/etc/kubernetes/admin.conf
 export KUBECONFIG
-/usr/bin/kubectl exec -it `/usr/bin/kubectl get pods  | grep ^mediadb- | awk '{print $1}'` -- gosu postgres pg_dump -c -U mediacms mediacms > /tmp/mediacms.sql
+/usr/bin/kubectl exec -it `/usr/bin/kubectl get pods  | grep ^mediadb- | awk '{print $1}'` -- pg_dump -c -U mediacms mediacms > /tmp/mediacms.sql
 curl --insecure -u mediacms: --upload /tmp/mediacms.sql https://10.0.0.18/storage/db_backup/mediacms.sql
 EOF
 
@@ -61,7 +61,7 @@ cat <<EOF > /etc/cron.daily/mediaweb
 EOF
 
 chmod +x $INSTALL_DIR/usr/local/sbin/mediaweb_host.sh \
-$INSTALL_DIR/etc/cron.hourly/mediaweb
+$INSTALL_DIR/etc/cron.*/mediaweb /usr/local/sbin/mediaweb_backup.sh
 
 ########################
 ### caddy configuration
