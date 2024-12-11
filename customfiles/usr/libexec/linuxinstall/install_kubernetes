@@ -360,6 +360,9 @@ if [ "$NODETYPE" == "master" ]; then
 	. $INSTALL_DIR/root/get_containers_password.sh
 	echo $GET_CONTAINERS_PASSWORD > $INSTALL_DIR/root/.get_containers_passwd
 	$CHROOT $INSTALL_DIR chown caddy:caddy /root/.get_containers_passwd
+	# Report usage to home silos
+	echo "/root/sciencedata_kubernetes/commands/pod_usage.sh" > $INSTALL_DIR/etc/cron.hourly/pods_accounting
+	chmod +x $INSTALL_DIR/etc/cron.hourly/pods_accounting
 
 	cat <<EOF > $INSTALL_DIR/etc/caddy/Caddyfile
 {
