@@ -30,6 +30,30 @@ cat <<EOF > /etc/cron.daily/zenodo
 /usr/local/sbin/zenodo_backup.sh
 EOF
 
+# This will be mounted onto /usr/share/elasticsearch/data in the db pod
+mkdir -p /usr/share/elasticsearch/data
+
+# We back it up to sciencedata every night.
+
+cat <<"EOF" > /usr/local/sbin/zenodo_elasticsearch_backup.sh
+#!/bin/sh
+KUBECONFIG=/etc/kubernetes/admin.conf
+export KUBECONFIG
+kubectl scale --replicas=0 deployment worker
+kubectl scale --replicas=0 deployment beat
+kubectl scale --replicas=0 deployment web
+kubectl cp `kubectl get pods | grep ^es- | awk '{print $1}'`:/usr/share/elasticsearch/data /tmp/zenodo_elasticsearch_data
+tar -cvzf /tmp/zenodo_elasticsearch_data.tar.gz /tmp/zenodo_elasticsearch_data
+curl --insecure -u cloud: --upload /tmp/zenodo_elasticsearch_data.tar.gz https://10.0.0.13/files/kubefiles/zenodo_elasticsearch_data.tar.gz
+kubectl scale --replicas=1 deployment worker
+kubectl scale --replicas=1 deployment beat
+kubectl scale --replicas=1 deployment web
+EOF
+
+cat <<EOF > /etc/cron.daily/zenodo_elasticsearch
+/usr/local/sbin/zenodo_elasticsearch_backup.sh
+EOF
+
 # Cronjob to point zenodo to the lb pod
 
 cat <<"EOF" > /usr/local/sbin/zenodo_host.sh
@@ -96,7 +120,8 @@ EOF
 
 chmod +x /usr/local/sbin/zenodo_host.sh /etc/cron.hourly/zenodo /usr/local/sbin/zenodo_backup.sh \
 /etc/cron.daily/zenodo /usr/local/sbin/adminer_host.sh /etc/cron.hourly/adminer \
-/usr/local/sbin/rabbit_host.sh /etc/cron.hourly/rabbit
+/usr/local/sbin/rabbit_host.sh /etc/cron.hourly/rabbit \
+/etc/cron.daily/zenodo_elasticsearch /usr/local/sbin/zenodo_elasticsearch_backup.sh
 
 # Caddy needs to be able to update root CA
 cat <<EOF >> /etc/sudoers.d/caddy
