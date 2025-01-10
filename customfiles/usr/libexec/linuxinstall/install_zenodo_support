@@ -35,6 +35,8 @@ mkdir -p /usr/share/elasticsearch/data
 
 # We back it up to sciencedata every night.
 
+useradd -u 1000 elasticsearch
+
 cat <<"EOF" > /usr/local/sbin/zenodo_elasticsearch_backup.sh
 #!/bin/sh
 KUBECONFIG=/etc/kubernetes/admin.conf
@@ -42,8 +44,9 @@ export KUBECONFIG
 kubectl scale --replicas=0 deployment worker
 kubectl scale --replicas=0 deployment beat
 kubectl scale --replicas=0 deployment web
-kubectl cp `kubectl get pods | grep ^es- | awk '{print $1}'`:/usr/share/elasticsearch/data /tmp/zenodo_elasticsearch_data
-tar -cvzf /tmp/zenodo_elasticsearch_data.tar.gz /tmp/zenodo_elasticsearch_data
+kubectl cp `kubectl get pods | grep ^es- | awk '{print $1}'`:/usr/share/elasticsearch/data /tmp/data
+cd /tmp/
+tar -cvzf zenodo_elasticsearch_data.tar.gz data
 curl --insecure -u cloud: --upload /tmp/zenodo_elasticsearch_data.tar.gz https://10.0.0.13/files/kubefiles/zenodo_elasticsearch_data.tar.gz
 kubectl scale --replicas=1 deployment worker
 kubectl scale --replicas=1 deployment beat
