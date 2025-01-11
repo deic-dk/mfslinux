@@ -54,6 +54,8 @@ kubectl scale --replicas=1 deployment web
 EOF
 
 cat <<EOF > /etc/cron.daily/zenodo_elasticsearch
+#!/bin/sh
+
 /usr/local/sbin/zenodo_elasticsearch_backup.sh
 EOF
 
