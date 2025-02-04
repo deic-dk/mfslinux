@@ -52,7 +52,7 @@ EOF
 # Deploy the service
 $CHROOT $INSTALL_DIR kubectl apply -f batch_server_pod.yaml
 
-# Script and cronjob to point batch to the nbviewer pod
+# Script and cronjob to point batch to the batch pod
 ls $INSTALL_DIR/usr/local/sbin/batch_host.sh >&/dev/null || \
 cat <<"EOF" > $INSTALL_DIR/usr/local/sbin/batch_host.sh
 #!/bin/bash
@@ -145,6 +145,9 @@ ls $INSTALL_DIR/etc/cron.daily/batch >&/dev/null || \
 cat <<EOF > $INSTALL_DIR/etc/cron.daily/batch_cert
 /usr/local/sbin/batch_cert.sh
 EOF
+
+# Get index.html from ScienceData
+curl -o /var/www/grid/data/index.html -L https://sciencedata.dk/public/kubefiles_public/batch/index.html
 
 chmod +x $INSTALL_DIR/usr/local/sbin/batch_host.sh $INSTALL_DIR/usr/local/sbin/batch_cert.sh \
 $INSTALL_DIR/etc/cron.daily/batch_host $INSTALL_DIR/etc/cron.daily/batch_cert

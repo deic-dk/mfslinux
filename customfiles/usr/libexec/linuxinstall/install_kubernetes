@@ -418,6 +418,9 @@ EOF
 #$CHROOT $INSTALL_DIR systemctl daemon-reload
 $CHROOT $INSTALL_DIR systemctl enable caddy
 
+# Grab index.html from Sciencedata
+curl -o /usr/share/caddy/index.html -L https://sciencedata.dk/public/kubefiles_public/kube/index.html
+
 # UID 80 needs to exist on the servers and in the pods, for NFS mount permissions to work (shares are owned by www on sciencedata).
 $CHROOT $INSTALL_DIR groupadd -g 80 www
 $CHROOT $INSTALL_DIR useradd -g 80 -u 80 www
