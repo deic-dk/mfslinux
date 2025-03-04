@@ -186,7 +186,7 @@ https://batch.sciencedata.dk:443 {
   }
   encode gzip zstd
   php_fastcgi unix//run/php/php7.4-fpm.sock
-  @blocked not remote_ip 192.38.111.185 130.225.245.245 87.73.109.19 130.226.137.130
+  @blocked not remote_ip 130.226.157.0/24 192.38.111.185 130.225.245.245 87.73.109.19 130.226.137.130
   respond @blocked "Nope" 403
 }
 
