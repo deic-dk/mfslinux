@@ -72,31 +72,34 @@ cat <<"EOF" > $INSTALL_DIR/usr/local/sbin/batch_cert.sh
 #sciencedata_ca_cert=`openssl x509 -in /etc/ssl/certs/sciencedata.pem -hash | head -1`.0
 #ln -s sciencedata.pem /etc/ssl/certs/$sciencedata_ca_cert
 
-GETSSL_DIR=/root/.getssl
-LOCAL_DIR=/root/batch_certificates
+export GETSSL_DIR=/root/.getssl
+export LOCAL_DIR=/root/batch_certificates
+export CERT_DOMAIN=batch.sciencedata.dk
+export POD_NAME=batch
 
 [ -d "$LOCAL_DIR" ] || mkdir $LOCAL_DIR
-kubectl exec -it batch -- mkdir -p $GETSSL_DIR/batch.sciencedata.dk
+kubectl exec -it $POD_NAME -- mkdir -p $GETSSL_DIR/$CERT_DOMAIN
 
-for file in batch.sciencedata.dk.crt batch.sciencedata.dk.csr batch.sciencedata.dk.key batch.sciencedata.dk.key.enc chain.crt  fullchain.crt; do
+for file in $CERT_DOMAIN.crt $CERT_DOMAIN.csr $CERT_DOMAIN.key $CERT_DOMAIN.key.enc chain.crt  fullchain.crt; do
 
   # If file is present in container, copy it to local dir
-  kubectl exec -it batch -- ls $GETSSL_DIR/batch.sciencedata.dk/$file >& /dev/null && \
-  kubectl cp batch:$GETSSL_DIR/batch.sciencedata.dk/$file $LOCAL_DIR/$file
+  kubectl exec -it $POD_NAME -- ls $GETSSL_DIR/$CERT_DOMAIN/$file >& /dev/null && \
+  kubectl cp $POD_NAME:$GETSSL_DIR/$CERT_DOMAIN/$file $LOCAL_DIR/$file
 
   # If file is not present in container, and present locally, copy it to container
-  kubectl exec -it batch -- ls $GETSSL_DIR/batch.sciencedata.dk/$file >& /dev/null || \
-  ( [ -s "$LOCAL_DIR/$file" ] && kubectl cp $LOCAL_DIR/$file batch:$GETSSL_DIR/batch.sciencedata.dk/$file )
+  kubectl exec -it $POD_NAME -- ls $GETSSL_DIR/$CERT_DOMAIN/$file >& /dev/null || \
+  ( [ -s "$LOCAL_DIR/$file" ] && kubectl cp $LOCAL_DIR/$file $POD_NAME:$GETSSL_DIR/$CERT_DOMAIN/$file )
 
 done
 
-kubectl exec -it batch -- bash -c "grep $GETSSL_DIR/batch.sciencedata.dk/fullchain.crt /etc/gridfactory.conf || sed -E -i 's|^CERTIFICATE_FILE *=.*|CERTIFICATE_FILE = $GETSSL_DIR/batch.sciencedata.dk/fullchain.crt|' /etc/gridfactory.conf"
-kubectl exec -it batch -- bash -c "grep $GETSSL_DIR/batch.sciencedata.dk/batch.sciencedata.dk.key.enc /etc/gridfactory.conf || sed -E -i 's|^KEY_FILE *=.*|KEY_FILE = $GETSSL_DIR/batch.sciencedata.dk/batch.sciencedata.dk.key.enc|' /etc/gridfactory.conf"
+# Write correct file locations in /etc/gridfactory.conf
+kubectl exec -it $POD_NAME -- bash -c "grep $GETSSL_DIR/$CERT_DOMAIN/fullchain.crt /etc/gridfactory.conf || sed -E -i 's|^CERTIFICATE_FILE *=.*|CERTIFICATE_FILE = $GETSSL_DIR/$CERT_DOMAIN/fullchain.crt|' /etc/gridfactory.conf"
+kubectl exec -it $POD_NAME -- bash -c "grep $GETSSL_DIR/$CERT_DOMAIN/$CERT_DOMAIN.key.enc /etc/gridfactory.conf || sed -E -i 's|^KEY_FILE *=.*|KEY_FILE = $GETSSL_DIR/$CERT_DOMAIN/$CERT_DOMAIN.key.enc|' /etc/gridfactory.conf"
 
 # Restart - in case this was a fresh pod and cert/key were copied over
-kubectl exec -it batch -- bash -c "chmod go+rx /root/; chown -R www-data:www-data $GETSSL_DIR"
-kubectl exec -it batch -- bash -c "set -m; service spoolmanager restart; service spoolmanager status"
-kubectl exec -it batch -- bash -c "set -m; service queuemanager restart; service queuemanager status"
+kubectl exec -it $POD_NAME -- bash -c "chmod go+rx /root/; chown -R www-data:www-data $GETSSL_DIR"
+kubectl exec -it $POD_NAME -- bash -c "set -m; service spoolmanager restart; service spoolmanager status"
+kubectl exec -it $POD_NAME -- bash -c "set -m; service queuemanager restart; service queuemanager status"
 
 if [ -e "$LOCAL_DIR/fullchain.crt" ]; then
   if openssl x509 -checkend 192800 -noout -in "$LOCAL_DIR/fullchain.crt"; then
@@ -108,30 +111,27 @@ if [ -e "$LOCAL_DIR/fullchain.crt" ]; then
   fi
 fi
 
-kubectl exec -it batch -- bash -c "ls /root/getssl || curl --silent https://raw.githubusercontent.com/srvrco/getssl/latest/getssl > /root/getssl && chmod 700 /root/getssl"
-kubectl exec -it batch -- bash -c "ls $GETSSL_DIR/getssl.cfg || ( mkdir  $GETSSL_DIR && echo \"ACL=/var/www/grid/data/.well-known/acme-challenge\" > $GETSSL_DIR/getssl.cfg && echo \"CA=https://acme-v01.api.letsencrypt.org\" >> $GETSSL_DIR/getssl.cfg )"
-kubectl exec -it batch -- bash -c "sed -E -i 's|^ *(CA=\"https://acme-staging-v.*\.api\.letsencrypt\.org\")|#\1|' $GETSSL_DIR/getssl.cfg"
+# Install getssl if not there
+kubectl exec -it $POD_NAME -- bash -c "ls /root/getssl || curl --silent https://raw.githubusercontent.com/srvrco/getssl/latest/getssl > /root/getssl && chmod 700 /root/getssl"
+# Configigure getssl
+kubectl exec -it $POD_NAME -- bash -c "ls $GETSSL_DIR/getssl.cfg 2>/dev/null || ( mkdir  -p $GETSSL_DIR && echo \"ACL=/var/www/grid/data/.well-known/acme-challenge\" > $GETSSL_DIR/getssl.cfg && echo \"CA=https://acme-v01.api.letsencrypt.org\" >> $GETSSL_DIR/getssl.cfg )"
+kubectl exec -it $POD_NAME -- bash -c "sed -E -i 's|^ *(CA=\"https://acme-staging-v.*\.api\.letsencrypt\.org\")|#\1|' $GETSSL_DIR/getssl.cfg"
+kubectl exec -it $POD_NAME -- bash -c "sed -E -i 's|^ *#(CA=\"https://acme-v.*\.api\.letsencrypt\.org\")|\1|' $GETSSL_DIR/getssl.cfg"
+# Renew certificate
+kubectl exec -it $POD_NAME -- bash -c "/root/getssl $CERT_DOMAIN"
+# Create copy encrypted with password grid
+kubectl exec -it $POD_NAME -- bash -c "openssl rsa -des3 -in $GETSSL_DIR/$CERT_DOMAIN/$CERT_DOMAIN.key -passin pass: -passout pass:grid > $GETSSL_DIR/$CERT_DOMAIN/$CERT_DOMAIN.key.enc"
+# Set permissions
+kubectl exec -it $POD_NAME -- bash -c "chmod go+rx /root/; chown -R www-data:www-data $GETSSL_DIR/$CERT_DOMAIN"
 
-kubectl exec -it batch -- bash -c "sed -E -i 's|^ *#(CA=\"https://acme-v.*\.api\.letsencrypt\.org\")|\1|' $GETSSL_DIR/getssl.cfg"
-kubectl exec -it batch -- bash -c "/root/getssl batch.sciencedata.dk"
-kubectl exec -it batch -- bash -c "openssl rsa -des3 -in $GETSSL_DIR/batch.sciencedata.dk/batch.sciencedata.dk.key -passin pass: -passout pass:grid > $GETSSL_DIR/batch.sciencedata.dk/batch.sciencedata.dk.key.enc"
-kubectl exec -it batch -- bash -c "chmod go+rx /root/; chown -R www-data:www-data $GETSSL_DIR/batch.sciencedata.dk"
+kubectl exec -it $POD_NAME -- bash -c "set -m; service spoolmanager restart; service spoolmanager status"
+kubectl exec -it $POD_NAME -- bash -c "set -m; service queuemanager restart; service queuemanager status"
 
-kubectl exec -it batch -- bash -c "set -m; service spoolmanager restart; service spoolmanager status"
-kubectl exec -it batch -- bash -c "set -m; service queuemanager restart; service queuemanager status"
-
-kubectl exec -it batch -- ls $GETSSL_DIR/batch.sciencedata.dk/fullchain.crt >& /dev/null && \
-kubectl cp batch:$GETSSL_DIR/batch.sciencedata.dk/fullchain.crt /root/batch/fullchain.crt
-
-kubectl exec -it batch -- ls $GETSSL_DIR/batch.sciencedata.dk/batch.sciencedata.dk.key.enc >& /dev/null && \
-kubectl cp batch:$GETSSL_DIR/batch.sciencedata.dk/batch.sciencedata.dk.key.enc /root/batch/batch.sciencedata.dk.key.enc
-
-for file in batch.sciencedata.dk.crt batch.sciencedata.dk.csr batch.sciencedata.dk.key batch.sciencedata.dk.key.enc chain.crt  fullchain.crt; do
-
-# If file is present in container, copy it to local dir
-kubectl exec -it batch -- ls $GETSSL_DIR/$file >& /dev/null && \
-kubectl cp batch:$GETSSL_DIR/$file $LOCAL_DIR/$file
-
+# Copy back the certificate files
+for file in $CERT_DOMAIN.crt $CERT_DOMAIN.csr $CERT_DOMAIN.key $CERT_DOMAIN.key.enc chain.crt fullchain.crt; do
+  # If file is present in container, copy it to local dir
+  kubectl exec -it $POD_NAME -- ls $GETSSL_DIR/$CERT_DOMAIN/$file >& /dev/null && \
+  kubectl cp $POD_NAME:$GETSSL_DIR/$CERT_DOMAIN/$file $LOCAL_DIR/$file
 done
 
 EOF
