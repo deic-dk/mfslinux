@@ -75,7 +75,8 @@ cat <<"EOF" > $INSTALL_DIR/usr/local/sbin/batch_cert.sh
 export GETSSL_DIR=/root/.getssl
 export LOCAL_DIR=/root/batch_certificates
 export CERT_DOMAIN=batch.sciencedata.dk
-export POD_NAME=batch
+#export POD_NAME=batch
+export POD_NAME=`kubectl get pods -o wide | grep -E '^batch-' | grep -v '\-cli' | grep -v '\-worker' | awk '{print $1}'`
 
 [ -d "$LOCAL_DIR" ] || mkdir $LOCAL_DIR
 kubectl exec -it $POD_NAME -- mkdir -p $GETSSL_DIR/$CERT_DOMAIN
@@ -96,8 +97,13 @@ done
 kubectl exec -it $POD_NAME -- bash -c "grep $GETSSL_DIR/$CERT_DOMAIN/fullchain.crt /etc/gridfactory.conf || sed -E -i 's|^CERTIFICATE_FILE *=.*|CERTIFICATE_FILE = $GETSSL_DIR/$CERT_DOMAIN/fullchain.crt|' /etc/gridfactory.conf"
 kubectl exec -it $POD_NAME -- bash -c "grep $GETSSL_DIR/$CERT_DOMAIN/$CERT_DOMAIN.key.enc /etc/gridfactory.conf || sed -E -i 's|^KEY_FILE *=.*|KEY_FILE = $GETSSL_DIR/$CERT_DOMAIN/$CERT_DOMAIN.key.enc|' /etc/gridfactory.conf"
 
+# Write correct file locations /etc/apache2/sites-available/grid.conf
+kubectl exec -it $POD_NAME -- bash -c "grep $GETSSL_DIR/$CERT_DOMAIN/fullchain.crt /etc/apache2/sites-available/grid.conf || sed -E -i 's|^ *SSLCertificateFile *.*|    SSLCertificateFile      $GETSSL_DIR/$CERT_DOMAIN/fullchain.crt|' /etc/apache2/sites-available/grid.conf"
+kubectl exec -it $POD_NAME -- bash -c "grep $GETSSL_DIR/$CERT_DOMAIN/$CERT_DOMAIN.key /etc/apache2/sites-available/grid.conf || sed -E -i 's|^ *SSLCertificateKeyFile *.*|    SSLCertificateKeyFile   $GETSSL_DIR/$CERT_DOMAIN/$CERT_DOMAIN.key|' /etc/apache2/sites-available/grid.conf"
+
 # Restart - in case this was a fresh pod and cert/key were copied over
 kubectl exec -it $POD_NAME -- bash -c "chmod go+rx /root/; chown -R www-data:www-data $GETSSL_DIR"
+kubectl exec -it $POD_NAME -- bash -c "set -m; service apache2 restart; service apache2 status"
 kubectl exec -it $POD_NAME -- bash -c "set -m; service spoolmanager restart; service spoolmanager status"
 kubectl exec -it $POD_NAME -- bash -c "set -m; service queuemanager restart; service queuemanager status"
 
@@ -124,6 +130,7 @@ kubectl exec -it $POD_NAME -- bash -c "openssl rsa -des3 -in $GETSSL_DIR/$CERT_D
 # Set permissions
 kubectl exec -it $POD_NAME -- bash -c "chmod go+rx /root/; chown -R www-data:www-data $GETSSL_DIR/$CERT_DOMAIN"
 
+kubectl exec -it $POD_NAME -- bash -c "set -m; service apache2 restart; service apache2 status"
 kubectl exec -it $POD_NAME -- bash -c "set -m; service spoolmanager restart; service spoolmanager status"
 kubectl exec -it $POD_NAME -- bash -c "set -m; service queuemanager restart; service queuemanager status"
 
@@ -138,7 +145,7 @@ EOF
 
 ls $INSTALL_DIR/etc/cron.hourly/batch >&/dev/null || \
 cat <<EOF > $INSTALL_DIR/etc/cron.hourly/batch_host
-/usr/local/sbin/batch_host.sh
+/usr/local/sbin/batch_host_sevice.sh
 EOF
 
 ls $INSTALL_DIR/etc/cron.daily/batch >&/dev/null || \
