@@ -119,7 +119,7 @@ fi
 
 # Install getssl if not there
 kubectl exec -it $POD_NAME -- bash -c "ls /root/getssl || curl --silent https://raw.githubusercontent.com/srvrco/getssl/latest/getssl > /root/getssl && chmod 700 /root/getssl"
-# Configigure getssl
+# Configure getssl
 kubectl exec -it $POD_NAME -- bash -c "ls $GETSSL_DIR/getssl.cfg 2>/dev/null || ( mkdir  -p $GETSSL_DIR && echo \"ACL=/var/www/grid/data/.well-known/acme-challenge\" > $GETSSL_DIR/getssl.cfg && echo \"CA=https://acme-v01.api.letsencrypt.org\" >> $GETSSL_DIR/getssl.cfg )"
 kubectl exec -it $POD_NAME -- bash -c "sed -E -i 's|^ *(CA=\"https://acme-staging-v.*\.api\.letsencrypt\.org\")|#\1|' $GETSSL_DIR/getssl.cfg"
 kubectl exec -it $POD_NAME -- bash -c "sed -E -i 's|^ *#(CA=\"https://acme-v.*\.api\.letsencrypt\.org\")|\1|' $GETSSL_DIR/getssl.cfg"
