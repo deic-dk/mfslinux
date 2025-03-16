@@ -51,6 +51,8 @@ spec:
           value: "https://sciencedata.dk/sites/batch/rtes/rtes.xml"
         - name: MY_HOSTNAME
           value: "batch"
+        - name: ADMIN_SUBJECT
+          value: "O=sciencedata.dk,CN=batch"
         ports:
         - name: https
           containerPort: 443
