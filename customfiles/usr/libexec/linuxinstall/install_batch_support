@@ -46,6 +46,8 @@ spec:
         - name: SSL_DN_HEADER
           value: "SSL-Client-DN"
         - name: TRUSTED_VOS
+          value: "https://batch/vos/default.txt"
+        - name: MY_VOS
           value: "https://sciencedata.dk/sites/batch/vos/anyone.txt"
         - name: RTE_URLS
           value: "https://sciencedata.dk/sites/batch/rtes/rtes.xml"
