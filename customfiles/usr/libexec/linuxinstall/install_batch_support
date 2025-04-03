@@ -209,7 +209,7 @@ EOF
 
 ls $INSTALL_DIR/etc/cron.hourly/batch >&/dev/null || \
 cat <<EOF > $INSTALL_DIR/etc/cron.hourly/batch_host
-/usr/local/sbin/batch_host_sevice.sh
+/usr/local/sbin/batch_host.sh
 EOF
 
 ls $INSTALL_DIR/etc/cron.daily/batch >&/dev/null || \
