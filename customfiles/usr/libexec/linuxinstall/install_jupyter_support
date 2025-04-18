@@ -55,6 +55,10 @@ cat <<EOF > $INSTALL_DIR/etc/caddy/sites/sciencenotebooks.caddy
 ### nbviewer ###
 
 https://kube.sciencedata.dk:8443 {
+  @svg path *.svg
+  header @svg Content-Type image/svg+xml {
+    defer
+  }
 	reverse_proxy {
 		to http://nbviewer:8080
 	}
@@ -64,6 +68,10 @@ https://kube.sciencedata.dk:8443 {
 }
 
 https://10.0.0.12:8443 {
+  @svg path *.svg
+  header @svg Content-Type image/svg+xml {
+    defer
+  }
 	reverse_proxy {
 		to http://nbviewer:8080
 	}
@@ -79,6 +87,10 @@ http://notebooks.sciencedata.dk {
 }
 
 https://notebooks.sciencedata.dk {
+  @svg path *.svg
+  header @svg Content-Type image/svg+xml {
+    defer
+  }
 	reverse_proxy {
 		to http://nbviewer:8080
 	}
@@ -92,6 +104,10 @@ http://sciencenotebooks.dk {
 }
 
 https://sciencenotebooks.dk {
+  @svg path *.svg
+  header @svg Content-Type image/svg+xml {
+    defer
+  }
 	reverse_proxy {
 					to http://nbviewer:8080
 	}
