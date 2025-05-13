@@ -1,0 +1,68 @@
+#!/bin/bash
+
+########################
+### Set variables
+########################
+SCRIPTDIR=$( dirname -- "$0"; )
+. "$SCRIPTDIR/set_params"
+########################
+
+####################################
+### Write YAML for PV and PVC
+####################################
+
+cat <<"EOF" > /root/system_yaml/ml_volume.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: nfs-10.0.0.13-cloud-ml
+  namespace: default
+spec:
+  accessModes:
+  - ReadOnlyMany
+  capacity:
+    storage: 30Ti
+  mountOptions:
+  - hard
+  - nfsvers=4.1
+  - noatime
+  - nodiratime
+  - async
+  nfs:
+    path: /tank/storage/cloud/ml
+    server: 10.0.0.13
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: nfs
+  volumeMode: Filesystem
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nfs-claim-10.0.0.13-cloud-ml
+  namespace: default
+spec:
+  accessModes:
+  - ReadOnlyMany
+  resources:
+    requests:
+      storage: 30Ti
+  storageClassName: nfs
+  volumeMode: Filesystem
+  volumeName: nfs-10.0.0.13-cloud-ml
+EOF
+
+####################################
+### Create PV and PVC
+####################################
+
+# Include the PVC above by applying the above, adding the following to your pod YAML and reapplying it:
+#spec:
+#  containers:
+#    volumeMounts:
+#    - mountPath: /usr/local/ml
+#      name: nfs-claim-sciencedata-cloud-ml
+#  volumes:
+#  - name: nfs-claim-10.0.0.13-cloud-ml
+#    persistentVolumeClaim:
+#      claimName: nfs-10.0.0.13-cloud-ml
+
