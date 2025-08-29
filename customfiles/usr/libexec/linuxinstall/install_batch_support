@@ -56,6 +56,8 @@ spec:
         - name: ADMIN_SUBJECT
           value: "O=sciencedata.dk,CN=batch"
         ports:
+        - name: http
+          containerPort: 80
         - name: https
           containerPort: 443
       #nodeName: peon152
@@ -69,7 +71,12 @@ spec:
   selector:
     app: batch
   ports:
-    - protocol: TCP
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 80
+    - name: https
+      protocol: TCP
       port: 443
       targetPort: 443
 EOF
