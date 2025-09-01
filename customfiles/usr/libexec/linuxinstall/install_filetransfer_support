@@ -1,0 +1,30 @@
+#!/bin/bash
+
+########################
+### Set variables
+########################
+SCRIPTDIR=$( dirname -- "$0"; )
+. "$SCRIPTDIR/set_params"
+########################
+
+########################
+### caddy configuration
+########################
+
+# We're assuming a running caddy has already been configured.
+ls $INSTALL_DIR/etc/caddy/sites || mkdir $INSTALL_DIR/etc/caddy/sites
+ls $INSTALL_DIR/etc/caddy/sites/filetransfer.caddy >&/dev/null || \
+cat <<EOF > $INSTALL_DIR/etc/caddy/sites/filetransfer.caddy
+########################
+### filetransfer
+########################
+
+https://filetransfer.sciencedata.dk {
+  redir https://sciencedata.dk/index.php/apps/uploader/?filetransfer
+}
+
+http://filetransfer.sciencedata.dk {
+  redir https://filetransfer.sciencedata.dk{uri}
+}
+EOF
+
