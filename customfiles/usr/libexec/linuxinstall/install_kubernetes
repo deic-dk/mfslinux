@@ -436,6 +436,20 @@ $CHROOT $INSTALL_DIR bash -c "systemctl daemon-reload"
 $CHROOT $INSTALL_DIR bash -c "systemctl enable nfs-common"
 $CHROOT $INSTALL_DIR bash -c "systemctl start nfs-common"
 
+# Backup port numbers
+cat <<"EOF" > /usr/local/sbin/kubernetes_ports_backup.sh
+#!/bin/bash
+
+[[ -s /usr/local/etc/pod_https_ports.txt ]] && curl --insecure -u cloud: --upload /usr/local/etc/pod_https_ports.txt https://10.0.0.13/files/kubefiles/pod_https_ports.txt
+[[ -s /usr/local/etc/pod_extra_ports.txt ]] && curl --insecure -u cloud: --upload /usr/local/etc/pod_extra_ports.txt https://10.0.0.13/files/kubefiles/pod_extra_ports.txt
+EOF
+
+cat <<EOF > /etc/cron.daily/kubernetes_ports
+/usr/local/sbin/kubernetes_ports_backup.sh
+EOF
+
+chmod +x /usr/local/sbin/kubernetes_ports_backup.sh /etc/cron.daily/kubernetes_ports
+
 ##########################
 ### control-plane node
 ##########################
