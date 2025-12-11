@@ -212,6 +212,9 @@ for file in $CERT_DOMAIN.crt $CERT_DOMAIN.csr $CERT_DOMAIN.key $CERT_DOMAIN.key.
   kubectl cp $POD_NAME:$GETSSL_DIR/$CERT_DOMAIN/$file $LOCAL_DIR/$file
 done
 
+# Get index.html from ScienceData
+kubectl exec -it $POD_NAME -- curl -o /var/www/grid/data/index.html -L https://sciencedata.dk/public/kubefiles_public/batch/index.html
+
 EOF
 
 ls $INSTALL_DIR/etc/cron.hourly/batch >&/dev/null || \
@@ -223,9 +226,6 @@ ls $INSTALL_DIR/etc/cron.daily/batch >&/dev/null || \
 cat <<EOF > $INSTALL_DIR/etc/cron.daily/batch_cert
 /usr/local/sbin/batch_cert.sh
 EOF
-
-# Get index.html from ScienceData
-curl -o /var/www/grid/data/index.html -L https://sciencedata.dk/public/kubefiles_public/batch/index.html
 
 chmod +x $INSTALL_DIR/usr/local/sbin/batch_host.sh $INSTALL_DIR/usr/local/sbin/batch_cert.sh \
 $INSTALL_DIR/etc/cron.daily/batch_host $INSTALL_DIR/etc/cron.daily/batch_cert
