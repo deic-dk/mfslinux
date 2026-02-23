@@ -11,7 +11,7 @@ SCRIPTDIR=$( dirname -- "$0"; )
 ### Write YAML for PV and PVC
 ####################################
 
-cat <<"EOF" > /root/system_yaml/ml_volume.yaml
+ls /root/system_yaml/ml_volume.yaml || cat <<"EOF" > /root/system_yaml/ml_volume.yaml
 apiVersion: v1
 kind: PersistentVolume
 metadata:
