@@ -315,6 +315,8 @@ ls zenodo_deployment >&/dev/null || git clone https://github.com/deic-dk/zenodo_
 ## Fire up the pods
 ###################
 
+kubectl create namespace zenodo
+
 kubectl apply -f zenodo_deployment/zenodo_volumes.yaml
 kubectl apply -f zenodo_deployment/zenodo_support_services.yaml
 kubectl apply -f zenodo_deployment/zenodo_services.yaml
