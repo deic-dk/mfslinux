@@ -343,6 +343,8 @@ if [ "$NODETYPE" == "master" ]; then
 	ln -s /root/sciencedata_kubernetes/commands/delete_pod $INSTALL_DIR/usr/local/bin/delete_pod
 	ln -s /root/sciencedata_kubernetes/commands/get_containers $INSTALL_DIR/usr/local/bin/get_containers
 	ln -s /root/sciencedata_kubernetes/commands/run_pod $INSTALL_DIR/usr/local/bin/run_pod
+	ln -s /root/sciencedata_kubernetes/commands/get_pod_logs $INSTALL_DIR/usr/local/bin/get_pod_logs
+	ln -s /root/sciencedata_kubernetes/commands/set_allowed_ips $INSTALL_DIR/usr/local/bin/set_allowed_ips
 	$CHROOT $INSTALL_DIR bash -c "cd /usr/share/caddy; ls /root/sciencedata_kubernetes/commands/*.php | while read name; do ln -s "$name"; done"
 	chmod go+rx $INSTALL_DIR/root
 	touch $INSTALL_DIR/var/log/kube.log
