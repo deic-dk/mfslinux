@@ -133,6 +133,7 @@ master_ip=`grep -E " *$master_host$" /etc/hosts | awk '{print $1}'`
 ip_num=`grep "$HOSTNAME" /etc/hosts | tail -1 | awk '{print $1}' | sed -E 's|10\.0\.[0-9]+\.||'`
 
 # Add master as gateway
+LOCAL_NIC=`ip link | grep ' UP ' | awk -F : '{print $2}' | sed -E 's|^ +||' | while read name; do ls -ld /sys/class/net/$name 2>/dev/null | ( grep -v virtual >&/dev/null ) && echo $name; done | head -1`
 #ip route del `ip route | grep default | grep '10.0.0.1 '`
 #ip route add default via 10.0.0.12 dev $LOCAL_NIC proto static
 
@@ -151,8 +152,7 @@ if [ "$1" == "-s" ];then
 	iptables -D FORWARD -s 10.2.0.0/16 -d ${master_ip}/32 -j ACCEPT
 else
 	# Create vlan300 interface
-	ip link add link ${LOCAL_NIC} vlan300 type vlan id 300
-	ip addr add 10.2.0.${ip_num}/16 dev vlan300
+	ifconfig vlan300 || ip link add link ${LOCAL_NIC} vlan300 type vlan id 300 && ip addr add 10.2.0.${ip_num}/16 dev vlan300
 	ip link set dev vlan300 up
 	# Wait max 20 seconds for cni0 to be up (it'll be created with the first pod hosted)
 	i=0
@@ -161,7 +161,8 @@ else
 		sleep 4
 	done
 	# Create bridge if not there 
-	ifconfig cni0 || brctl addbr cni0 && ip link set dev cni0 up
+	#ifconfig cni0 || brctl addbr cni0
+	ip link set dev cni0 up
 	# Bridge cni0 to vlan300
 	brctl addif cni0 vlan300
 	# use cni0 as local gateway for vlan300

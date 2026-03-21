@@ -32,7 +32,7 @@ if [ -z "$MY_INTERNAL_IP" ]; then
 	export MY_INTERNAL_IP=`ifconfig | grep 'inet ' | grep -v 127 | head -1 | awk '{print $2}' | sed -E 's|:.*$||'`
 fi
 
-export MY_INTERNAL_IP_NUM=`echo $MY_INTERNAL_IP | sed -E 's|10\.0\.[0-9]+\.||'`
+export MY_INTERNAL_IP_NUM=`echo $MY_INTERNAL_IP | sed -E 's|10\.[02]\.[0-9]+\.||'`
 
 # Figure out the active network interface
 
