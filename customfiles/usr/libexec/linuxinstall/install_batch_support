@@ -149,7 +149,7 @@ kubectl exec -it $POD_NAME -- bash -c "chmod go+rx /root/; chown -R www-data:www
 kubectl exec -it $POD_NAME -- mkdir -p $GETSSL_DIR/$CERT_DOMAIN
 
 # Synchronize getssl certificate/key with pod
-for file in $CERT_DOMAIN.crt $CERT_DOMAIN.csr $CERT_DOMAIN.key $CERT_DOMAIN.key.enc chain.crt  fullchain.crt; do
+for file in $CERT_DOMAIN.crt $CERT_DOMAIN.csr $CERT_DOMAIN.key $CERT_DOMAIN.key.enc chain.crt fullchain.crt; do
   # If file is present in container, copy it to local dir
   echo "Copying files to container" >2
   kubectl exec -it $POD_NAME -- ls $GETSSL_DIR/$CERT_DOMAIN/$file >& /dev/null && \
