@@ -36,7 +36,7 @@ spec:
         - name: USERNAME
           value: 'root'
         - name: SD_UID
-          value: 'cloud'
+          value: 'batch'
         - name: HOME_SERVER
           value: ''
         - name: PUBLIC_HOME_SERVER
@@ -89,7 +89,7 @@ ls $INSTALL_DIR/usr/local/sbin/batch_host.sh >&/dev/null || \
 cat <<"EOF" > $INSTALL_DIR/usr/local/sbin/batch_host.sh
 #!/bin/bash
 
-lbip=`get_containers cloud 2>/dev/null | grep -E '^batch\|' | awk -F \| '{print $4}'`
+lbip=`get_containers $BATCH_USER 2>/dev/null | grep -E '^batch\|' | awk -F \| '{print $4}'`
 
 if [ -z "$lbip" ]; then
   lbip=`kubectl get services -o wide | grep -E '^batch ' | awk '{print $3}'`
@@ -112,108 +112,45 @@ cat <<"EOF" > $INSTALL_DIR/usr/local/sbin/batch_cert.sh
 #ln -s sciencedata.pem /etc/ssl/certs/$sciencedata_ca_cert
 
 # Certificate used by GridFactory for staging in/output files
-export CERT_TYPE="local" # "letsencrypt"
 export LOCAL_DIR=/root/batch_certificates
-export GETSSL_DIR=/root/.getssl
 export CERT_DOMAIN=batch.sciencedata.dk
+export CERT_DIR=/var/www/grid
+export BATCH_USER=batch
 
-POD_NAME=`get_containers cloud 2>/dev/null | grep '|batch|' | awk -F \| '{print $1}'`
-
+POD_NAME=`get_containers $BATCH_USER 2>/dev/null | grep '|batch|' | grep 'batch_server' | awk -F \| '{print $1}'`
 if [ -z "$POD_NAME" ]; then
-  POD_NAME=`kubectl get pods -o wide | grep -E '^batch-' | grep -v '\-cli' | grep -v '\-worker' | awk '{print $1}'`
+	POD_NAME=`kubectl get pods -o wide | grep -E '^batch-' | grep -v '\-cli' | grep -v '\-worker' | awk '{print $1}'`
 fi
-
 if [ -z "$POD_NAME" ]; then
-  exit 1
+	exit 1
 fi
-
 export POD_NAME
 
 [ -d "$LOCAL_DIR" ] || mkdir $LOCAL_DIR
 
-CERT_DIR=/var/www/grid
+server_exp_seconds=$(( 60*60*24*365*20 )) # The default self-signed cert has a lifetime of 10 years, our's has 100
+client_exp_seconds=$(( 60*60*24*30 )) # We user batch' user cert for file staging, assuming 1 year life
 
-let check_exp_seconds=60*60*24*365*20 # The default self-signed cert has a lifetime of 10 years, our's has 100
 # Check if the local certificate/key on the server are fresh and if so, overwrite with the stored long-term self-signed ones
-kubectl exec -it $POD_NAME -- bash -c "openssl x509 -checkend $check_exp_seconds -noout -in $CERT_DIR/hostcert.pem"
+kubectl exec -it $POD_NAME -- bash -c "openssl x509 -checkend $server_exp_seconds -noout -in $CERT_DIR/hostcert.pem"
 if [ $? -ne 0 ]; then
-  kubectl cp $LOCAL_DIR/hostcert.pem $POD_NAME:$CERT_DIR/hostcert.pem
-  kubectl cp $LOCAL_DIR/hostkey.pem $POD_NAME:$CERT_DIR/hostkey.pem
-  kubectl cp $LOCAL_DIR/hostkey_unenc.pem $POD_NAME:$CERT_DIR/hostkey_unenc.pem
-  ca_cert_name=`openssl x509 -in $LOCAL_DIR/hostcert.pem -hash | head -1`.0
-  kubectl cp $LOCAL_DIR/hostcert.pem $POD_NAME:$CERT_DIR/certificates/ca_cert_name
+	kubectl cp $LOCAL_DIR/hostcert.pem $POD_NAME:$CERT_DIR/hostcert.pem
+	kubectl cp $LOCAL_DIR/hostkey.pem $POD_NAME:$CERT_DIR/hostkey.pem
+	kubectl cp $LOCAL_DIR/hostkey_unenc.pem $POD_NAME:$CERT_DIR/hostkey_unenc.pem
+	ca_cert_name=`openssl x509 -in $LOCAL_DIR/hostcert.pem -hash | head -1`.0
+	kubectl cp $LOCAL_DIR/hostcert.pem $POD_NAME:$CERT_DIR/certificates/$ca_cert_name
 fi
 
 kubectl exec -it $POD_NAME -- bash -c "chmod go+rx /root/; chown -R www-data:www-data $CERT_DIR"
-
-kubectl exec -it $POD_NAME -- mkdir -p $GETSSL_DIR/$CERT_DOMAIN
-
-# Synchronize getssl certificate/key with pod
-for file in $CERT_DOMAIN.crt $CERT_DOMAIN.csr $CERT_DOMAIN.key $CERT_DOMAIN.key.enc chain.crt fullchain.crt; do
-  # If file is present in container, copy it to local dir
-  echo "Copying files to container" >2
-  kubectl exec -it $POD_NAME -- ls $GETSSL_DIR/$CERT_DOMAIN/$file >& /dev/null && \
-  kubectl cp $POD_NAME:$GETSSL_DIR/$CERT_DOMAIN/$file $LOCAL_DIR/$file
-
-  # If file is not present in container, and present locally, copy it to container
-  echo "Copying files from container" >2
-  kubectl exec -it $POD_NAME -- ls $GETSSL_DIR/$CERT_DOMAIN/$file >& /dev/null || \
-  ( [ -s "$LOCAL_DIR/$file" ] && kubectl cp $LOCAL_DIR/$file $POD_NAME:$GETSSL_DIR/$CERT_DOMAIN/$file )
-done
-
-kubectl exec -it $POD_NAME -- bash -c "chmod go+rx /root/; chown -R www-data:www-data $GETSSL_DIR"
-
-if [ "$CERT_TYPE" == "letsencrypt" ]; then
-  # Write correct file locations /etc/apache2/sites-available/grid.conf
-  kubectl exec -it $POD_NAME -- bash -c "grep $GETSSL_DIR/$CERT_DOMAIN/fullchain.crt /etc/apache2/sites-available/grid.conf || sed -E -i 's|^ *SSLCertificateFile *.*|    SSLCertificateFile      $GETSSL_DIR/$CERT_DOMAIN/fullchain.crt|' /etc/apache2/sites-available/grid.conf"
-  kubectl exec -it $POD_NAME -- bash -c "grep $GETSSL_DIR/$CERT_DOMAIN/$CERT_DOMAIN.key /etc/apache2/sites-available/grid.conf || sed -E -i 's|^ *SSLCertificateKeyFile *.*|    SSLCertificateKeyFile   $GETSSL_DIR/$CERT_DOMAIN/$CERT_DOMAIN.key|' /etc/apache2/sites-available/grid.conf"
-fi
-
-# Write correct file locations in /etc/gridfactory.conf
-kubectl exec -it $POD_NAME -- bash -c "grep $GETSSL_DIR/$CERT_DOMAIN/fullchain.crt /etc/gridfactory.conf || sed -E -i 's|^CERTIFICATE_FILE *=.*|CERTIFICATE_FILE = $GETSSL_DIR/$CERT_DOMAIN/fullchain.crt|' /etc/gridfactory.conf"
-kubectl exec -it $POD_NAME -- bash -c "grep $GETSSL_DIR/$CERT_DOMAIN/$CERT_DOMAIN.key.enc /etc/gridfactory.conf || sed -E -i 's|^KEY_FILE *=.*|KEY_FILE = $GETSSL_DIR/$CERT_DOMAIN/$CERT_DOMAIN.key.enc|' /etc/gridfactory.conf"
 
 # Restart - in case this was a fresh pod and cert/key locations were modified
 kubectl exec -it $POD_NAME -- bash -c "set -m; service apache2 restart; service apache2 status"
 kubectl exec -it $POD_NAME -- bash -c "set -m; service spoolmanager restart; service spoolmanager status"
 kubectl exec -it $POD_NAME -- bash -c "set -m; service queuemanager restart; service queuemanager status"
 
-if [ -e "$LOCAL_DIR/fullchain.crt" ]; then
-  if openssl x509 -checkend 192800 -noout -in "$LOCAL_DIR/fullchain.crt"; then
-    echo "Certificate is good for at least another two days!"
-    exit 0
-  else
-    echo "Certificate has expired or will do so within 24 hours!"
-    echo "(or is invalid/not found)"
-  fi
-fi
-
-# Install getssl if not there
-kubectl exec -it $POD_NAME -- bash -c "ls /root/getssl || curl --silent https://raw.githubusercontent.com/srvrco/getssl/latest/getssl > /root/getssl && chmod 700 /root/getssl"
-# Configure getssl
-kubectl exec -it $POD_NAME -- bash -c "ls $GETSSL_DIR/getssl.cfg 2>/dev/null || ( mkdir  -p $GETSSL_DIR && echo \"ACL=/var/www/grid/data/.well-known/acme-challenge\" > $GETSSL_DIR/getssl.cfg && echo \"CA=https://acme-v01.api.letsencrypt.org\" >> $GETSSL_DIR/getssl.cfg )"
-kubectl exec -it $POD_NAME -- bash -c "sed -E -i 's|^ *(CA=\"https://acme-staging-v.*\.api\.letsencrypt\.org\")|#\1|' $GETSSL_DIR/getssl.cfg"
-kubectl exec -it $POD_NAME -- bash -c "sed -E -i 's|^ *#(CA=\"https://acme-v.*\.api\.letsencrypt\.org\")|\1|' $GETSSL_DIR/getssl.cfg"
-# Renew certificate
-kubectl exec -it $POD_NAME -- bash -c "/root/getssl $CERT_DOMAIN"
-# Create copy encrypted with password grid
-kubectl exec -it $POD_NAME -- bash -c "openssl rsa -des3 -in $GETSSL_DIR/$CERT_DOMAIN/$CERT_DOMAIN.key -passin pass: -passout pass:grid > $GETSSL_DIR/$CERT_DOMAIN/$CERT_DOMAIN.key.enc"
-# Set permissions
-kubectl exec -it $POD_NAME -- bash -c "chmod go+rx /root/; chown -R www-data:www-data $GETSSL_DIR/$CERT_DOMAIN"
-
-kubectl exec -it $POD_NAME -- bash -c "set -m; service apache2 restart; service apache2 status"
-kubectl exec -it $POD_NAME -- bash -c "set -m; service spoolmanager restart; service spoolmanager status"
-kubectl exec -it $POD_NAME -- bash -c "set -m; service queuemanager restart; service queuemanager status"
-
-# Copy back the letsencrypt certificate files
-for file in $CERT_DOMAIN.crt $CERT_DOMAIN.csr $CERT_DOMAIN.key $CERT_DOMAIN.key.enc chain.crt fullchain.crt; do
-  # If file is present in container, copy it to local dir
-  kubectl exec -it $POD_NAME -- ls $GETSSL_DIR/$CERT_DOMAIN/$file >& /dev/null && \
-  kubectl cp $POD_NAME:$GETSSL_DIR/$CERT_DOMAIN/$file $LOCAL_DIR/$file
-done
-
 # Get index.html from ScienceData
-kubectl exec -it $POD_NAME -- curl -o /var/www/grid/data/index.html -L https://sciencedata.dk/public/kubefiles_public/batch/index.html
+curl -o $LOCAL_DIR/index.html -L https://sciencedata.dk/public/kubefiles_public/batch/index.html
+kubectl cp $LOCAL_DIR/index.html $POD_NAME:$CERT_DIR/data/index.html
 
 EOF
 
@@ -264,7 +201,7 @@ https://batch.sciencedata.dk:443 {
   }
   encode gzip zstd
   php_fastcgi unix//run/php/php7.4-fpm.sock
-  @blocked not remote_ip 130.226.157.0/24 192.38.111.185 130.225.245.245 87.73.109.19 130.226.137.130
+  @blocked not remote_ip 130.226.157.0/24 192.38.111.185 130.225.245.245 87.73.109.19 130.226.137.130 10.0.0.0/16 10.2.0.0/16
   respond @blocked "Nope" 403
 }
 
