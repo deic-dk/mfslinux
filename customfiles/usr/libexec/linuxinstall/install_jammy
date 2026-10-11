@@ -38,7 +38,7 @@ chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive apt install -y netscript-2.4
 netplan.io resolvconf ethtool openssh-client openssh-server net-tools inetutils-tools \
 bind9-dnsutils bind9-host psmisc vim pciutils dkms vlan unicode-data gnupg git golang \
 wget jq nfs-common ipvsadm caddy python3-pip iputils-ping php-cli php-fpm \
-duplicity zip unzip gcc libxt6 autossh rclone tftp atftp tcpd libwrap0 php-yaml lshw \
+duplicity zip unzip gcc libxt6 autossh rclone tftp atftp tcpd libwrap0 php-yaml lshw rsync \
 linux-modules-extra-5.15.0-25-generic"
 
 # We don't need a running caddy unless we're a master
@@ -107,6 +107,13 @@ firstdisk=`echo "${nvmes[0]} ${disks[0]}" | head -1 | xargs`
 sed -i 's|quiet splash||' /mnt/etc/default/grub
 chroot /mnt grub-install /dev/$firstdisk
 chroot /mnt update-grub
+
+# Keep the second system disk (ROOT_bk, see autopart) a bootable copy of this
+# system: nightly sync. The first copy is made the first night (or run
+# /usr/local/sbin/sync_backup_disk by hand after installing).
+if ls /dev/disk/by-label/ROOT_bk /dev/disk/by-partlabel/ROOT_bk >&/dev/null; then
+	echo "30 3 * * * root /usr/local/sbin/sync_backup_disk >> /var/log/sync_backup_disk.log 2>&1" > /mnt/etc/cron.d/sync_backup_disk
+fi
 
 # mkdir -p /mnt/boot/efi/EFI/Microsoft/Boot
 # chroot /mnt mount /dev/sda1 /boot/efi

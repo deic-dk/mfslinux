@@ -1,0 +1,88 @@
+#!/bin/bash
+
+# Keep the second system disk a bootable copy of the running system.
+#
+# autopart gives the second disk the same layout as the first, with the labels
+# ROOT_bk / SWAP_bk (PARTLABEL on GPT installs). This copies the running root
+# filesystem onto ROOT_bk, gives the copy its own fstab (the _bk labels) and puts
+# GRUB on the second disk with a configuration that boots ROOT_bk. If the first
+# disk dies, select the second disk in the BIOS boot menu: the node comes up as
+# it was at the last sync. Run nightly from /etc/cron.d/sync_backup_disk.
+#
+# Not copied: other filesystems (-x: /var/lib/containers on its own disk, NFS and
+# pod volumes, /proc, /sys, /dev, /run) and the kubelet's per-pod directories,
+# which are rebuilt when pods start. Pulled images that live on the root disk are
+# skipped too; they are pulled again after a switch.
+
+set -o pipefail
+
+log() { echo "`date '+%F %T'` sync_backup_disk: $*"; }
+
+dev=`findfs LABEL=ROOT_bk 2>/dev/null || findfs PARTLABEL=ROOT_bk 2>/dev/null`
+if [ -z "$dev" ]; then
+	log "no ROOT_bk partition on this machine - nothing to do"
+	exit 0
+fi
+
+rootdev=`findmnt -n -o SOURCE /`
+if [ "`readlink -f $rootdev`" = "`readlink -f $dev`" ]; then
+	log "running from the backup disk ($dev) - not syncing; reinstall or copy back by hand"
+	exit 1
+fi
+
+disk=/dev/`lsblk -n -o PKNAME $dev | head -1`
+if [ "$disk" = "/dev/" ]; then
+	log "cannot find the disk of $dev"
+	exit 1
+fi
+
+# Use an existing mount of the partition, else mount it ourselves.
+target=`findmnt -n -o TARGET --source $dev | head -1`
+mounted_here=""
+if [ -z "$target" ]; then
+	target=/mnt/backup_root
+	mkdir -p $target
+	mount $dev $target || { log "cannot mount $dev"; exit 1; }
+	mounted_here=1
+fi
+
+cleanup() {
+	for d in dev/pts dev proc sys run; do
+		mountpoint -q $target/$d && umount $target/$d
+	done
+	[ -n "$mounted_here" ] && umount $target
+}
+trap cleanup EXIT
+
+log "copying / to $dev ($disk) mounted at $target"
+rsync -aHAXx --numeric-ids --delete \
+	--exclude=/proc/ --exclude=/sys/ --exclude=/dev/ --exclude=/run/ --exclude=/tmp/ \
+	--exclude=/mnt/ --exclude=/media/ --exclude=/lost+found/ \
+	--exclude=/var/lib/containers/storage/ --exclude=/var/lib/kubelet/pods/ \
+	--exclude=/var/tmp/ --exclude=/var/cache/apt/archives/ \
+	/ $target/
+rc=$?
+# 24 = some files vanished during the copy (logs, sockets) - harmless
+if [ $rc -ne 0 -a $rc -ne 24 ]; then
+	log "rsync failed ($rc)"
+	exit 1
+fi
+mkdir -p $target/proc $target/sys $target/dev $target/run $target/tmp $target/mnt $target/media
+chmod 1777 $target/tmp
+
+# The copy boots from the _bk labels.
+sed -E -i \
+	-e 's#^(PART)?LABEL=ROOT([[:space:]])#\1LABEL=ROOT_bk\2#' \
+	-e 's#^(\#?)(PART)?LABEL=SWAP([[:space:]])#\1\2LABEL=SWAP_bk\3#' \
+	$target/etc/fstab
+
+# GRUB on the second disk, configured from inside the copy, so that it finds
+# the copy's root filesystem.
+for d in dev dev/pts proc sys run; do
+	mount --bind /$d $target/$d
+done
+chroot $target grub-install $disk >/dev/null 2>&1 || { log "grub-install on $disk failed"; exit 1; }
+chroot $target update-grub >/dev/null 2>&1 || { log "update-grub in the copy failed"; exit 1; }
+
+date '+%F %T' > $target/etc/backup_synced
+log "done; $disk boots the copy"

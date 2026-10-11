@@ -47,3 +47,15 @@ sed -i 's|runtimes = \["docker-runc"|runtimes = ["/usr/lib/cri-o-runc/sbin/runc"
 
 
 
+####################################
+### Cluster side (run on the control plane, once per GPU node)
+####################################
+
+cat <<END
+
+GPU node set up. On the control plane:
+  kubectl label node `hostname` gpus-present=yes
+  kubectl apply -f system_yaml/nvidia_runtime_class.yaml      # once per cluster
+  kubectl apply -f system_yaml/nvidia-device-plugin.yaml      # once per cluster; runs on gpus-present nodes
+Check: kubectl get node `hostname` -o custom-columns='GPU:.status.allocatable.nvidia\.com/gpu'
+END

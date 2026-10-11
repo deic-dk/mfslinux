@@ -67,6 +67,30 @@ echo "PARTLABEL=$swap_part_label none swap sw 0 0" >> /mnt/etc/fstab
 echo "PARTLABEL=$root_part_label / ext4 rw 1 1" >> /mnt/etc/fstab
 echo "proc /proc proc defaults 0 0" >> /mnt/etc/fstab
 
+# Container storage on a disk of its own, if the machine has one beyond the two
+# system disks: CRI-O's /var/lib/containers holds the pulled images and every
+# container's writable layer (what user pods write outside their volumes). On the
+# root disk, a few large images plus a busy pod push the node under the kubelet's
+# disk-pressure threshold and pods get evicted. On its own filesystem it is the
+# kubelet's "imagefs", with its own threshold, and the root disk keeps its room.
+# Only a disk that is blank, or that already carries our CONTAINERS label from a
+# previous install, is used - a disk with anything else on it is left alone.
+for disk in `lsblk -dn -o NAME,TYPE | awk '$2=="disk"{print $1}' | grep -E '^(sd[a-z]+|nvme[0-9]+n[0-9]+)$'`; do
+	# skip the two system disks ($disks/$nvmes are newline-separated: let the shell split them)
+	case " `echo $disks $nvmes` " in *" $disk "*) continue;; esac
+	label=`lsblk -dn -o LABEL /dev/$disk | xargs`
+	fstype=`lsblk -dn -o FSTYPE /dev/$disk | xargs`
+	parts=`lsblk -n -o NAME /dev/$disk | tail -n +2 | wc -l`
+	if [ "$label" = "CONTAINERS" ] || [ -z "$fstype" -a "$parts" -eq 0 ]; then
+		echo "Using /dev/$disk for /var/lib/containers"
+		mkfs.xfs -f -L CONTAINERS /dev/$disk
+		mkdir -p /mnt/var/lib/containers
+		mount -t xfs /dev/$disk /mnt/var/lib/containers
+		echo "LABEL=CONTAINERS	/var/lib/containers	xfs	defaults,noatime,nofail	0	2" >> /mnt/etc/fstab
+		break
+	fi
+done
+
 if [ $numdisks -gt 1 ]; then
 
 	seconddisk=`echo "${nvmes[0]} ${disks[0]}" | head -2 | tail -1`
@@ -84,8 +108,8 @@ if [ $numdisks -gt 1 ]; then
 	# Add entries to fstab backup $PATH_FSTAB
 	mkdir /bk/etc
 	echo "# Device Mountpoint FStype Options Dump Pass#" > /bk/etc/fstab
-	echo "PARTLABEL${swap_part_label}_bk none swap sw 0 0" >> /bk/etc/fstab
-	echo "PARTLABEL{root_part_label}_bk / ext4 rw 1 1" >> /bk/etc/fstab
+	echo "PARTLABEL=${swap_part_label}_bk none swap sw 0 0" >> /bk/etc/fstab
+	echo "PARTLABEL=${root_part_label}_bk / ext4 rw 1 1" >> /bk/etc/fstab
 	echo "proc /proc proc defaults 0 0" >> /bk/etc/fstab
 	
 	# Unmount backup partition
