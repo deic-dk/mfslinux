@@ -1,0 +1,124 @@
+#!/bin/bash
+#
+# Turn an installed kubernetes worker with a lot of disks into a "disk node":
+# a ZFS pool for the pods' disk volumes (run_pod's disk* types, DISK_BASE_PATH
+# /tank/data/kube), with the care the silos get - alerts by mail, SMART
+# monitoring, a nightly incremental send to silo6. Written from connect
+# (2026-10-13), run once after the base install, on the box.
+#
+# Pool layout: all unused disks of 1 TB or more, by their stable /dev/disk/by-id
+# names (a disk that returns under a new sdX name is then still recognised),
+# in raidz3 vdevs of up to 11 disks, plus 2 hot spares when there are 12 disks
+# or more (1 below that). Override with POOL_LAYOUT="raidz3 <id> <id> … spare <id>"
+# or skip disks with SKIP_DISKS="sdb sdc". Nothing is done if a pool named
+# tank already exists.
+
+########################
+### Set variables
+########################
+SCRIPTDIR=$( dirname -- "$0"; )
+. "$SCRIPTDIR/set_params"
+POOL=${POOL:-tank}
+BACKUPHOST=${BACKUPHOST:-silo6.sciencedata.dk}
+MAIL_TO=${MAIL_TO:-support@sciencedata.dk}
+########################
+
+apt install -y zfsutils-linux zfs-zed smartmontools msmtp msmtp-mta ledmon
+
+####################################
+### The pool
+####################################
+if zpool list -H -o name 2>/dev/null | grep -qx "$POOL"; then
+	echo "pool $POOL exists - leaving it alone"
+else
+	if [ -z "$POOL_LAYOUT" ]; then
+		ids=""
+		for d in `lsblk -dn -o NAME,SIZE,TYPE -b | awk '$3=="disk" && $2>=1000000000000 {print $1}'`; do
+			case " $SKIP_DISKS " in *" $d "*) continue;; esac
+			# used already? (partitions, a filesystem, a zfs label, or holding /)
+			[ -n "`lsblk -n -o FSTYPE /dev/$d | grep .`" ] && continue
+			[ "`lsblk -n -o NAME /dev/$d | wc -l`" -gt 1 ] && continue
+			id=`ls -l /dev/disk/by-id/ | awk -v d="$d" '$NF=="../../"d && $9 !~ /^wwn-/ {print $9}' | head -1`
+			[ -n "$id" ] && ids="$ids $id"
+		done
+		n=`echo $ids | wc -w`
+		if [ "$n" -lt 4 ]; then echo "only $n unused disks of 1 TB or more - no pool created"; exit 1; fi
+		spares=1; [ "$n" -ge 12 ] && spares=2
+		data=$((n - spares))
+		groups=$(( (data + 10) / 11 ))
+		per=$(( data / groups ))
+		POOL_LAYOUT=""; i=0
+		for id in $ids; do
+			i=$((i+1))
+			if [ $i -le $data ]; then
+				[ $(( (i-1) % per )) -eq 0 ] && [ $(( (i-1) / per )) -lt $groups ] && POOL_LAYOUT="$POOL_LAYOUT raidz3"
+				POOL_LAYOUT="$POOL_LAYOUT $id"
+			else
+				[ $i -eq $((data+1)) ] && POOL_LAYOUT="$POOL_LAYOUT spare"
+				POOL_LAYOUT="$POOL_LAYOUT $id"
+			fi
+		done
+		echo "pool layout from $n disks: $POOL_LAYOUT"
+	fi
+	zpool create -f -o ashift=12 -o autoreplace=on -o autoexpand=on \
+		-O compression=lz4 -O atime=off -O xattr=sa -m /$POOL $POOL $POOL_LAYOUT || exit 1
+	zfs create $POOL/data
+fi
+mkdir -p /$POOL/data/kube
+
+####################################
+### Alerts: zed + smartd, mail like the silos (root -> support@)
+####################################
+sed -i 's/^#\?ZED_EMAIL_ADDR=.*/ZED_EMAIL_ADDR="root"/; s/^#\?ZED_NOTIFY_VERBOSE=.*/ZED_NOTIFY_VERBOSE=1/' /etc/zfs/zed.d/zed.rc
+systemctl restart zfs-zed
+systemctl enable --now smartd
+
+# SMTP relay credentials: the same private file the FreeBSD installer uses
+# (MAIL_SMTPHOST, MAIL_SMTPNAME, MAIL_SMTPPASSWORD, FROM_EMAIL), from the install server.
+tftp_server_ip=`ip route | grep default | awk '{print $3}'`
+cd /tmp && atftp $tftp_server_ip -g -r /freebsd/config/private/smtp_credentials.sh -l smtp_credentials.sh 2>/dev/null
+if [ -s /tmp/smtp_credentials.sh ]; then
+	. /tmp/smtp_credentials.sh; rm -f /tmp/smtp_credentials.sh
+	umask 077
+	cat > /etc/msmtprc <<END
+defaults
+auth           on
+tls            on
+tls_starttls   on
+tls_trust_file /etc/ssl/certs/ca-certificates.crt
+logfile        /var/log/msmtp.log
+aliases        /etc/aliases
+account        default
+host           ${MAIL_SMTPHOST:-mailhotel.i2.dk}
+port           ${MAIL_SMTPPORT:-587}
+from           ${MAIL_SMTPNAME:-no-reply@sciencedata.dk}
+user           ${MAIL_SMTPNAME:-no-reply@sciencedata.dk}
+password       $MAIL_SMTPPASSWORD
+END
+	umask 022
+	touch /var/log/msmtp.log
+	grep -q '^root:' /etc/aliases 2>/dev/null && sed -i "s/^root:.*/root: ${FROM_EMAIL:-$MAIL_TO}/" /etc/aliases || echo "root: ${FROM_EMAIL:-$MAIL_TO}" >> /etc/aliases
+	grep -q '^default:' /etc/aliases || echo "default: ${FROM_EMAIL:-$MAIL_TO}" >> /etc/aliases
+	printf "Subject: `hostname`: disk node set up\n\nPool $POOL created or found; zed and smartd mail here.\n" | sendmail -t root
+else
+	echo "WARNING: no smtp_credentials.sh on the install server - write /etc/msmtprc and /etc/aliases by hand (see connect)"
+fi
+
+####################################
+### Nightly backup to silo6 (script comes with the install tree)
+####################################
+chmod 755 /usr/local/sbin/zfs_backup_linux.sh
+echo "30 2 * * * root /usr/local/sbin/zfs_backup_linux.sh >> /var/log/zfs_backup.log 2>&1" > /etc/cron.d/zfs_backup
+ssh-keyscan -t ed25519 $BACKUPHOST 2>/dev/null >> /root/.ssh/known_hosts
+
+####################################
+### Cluster side (run on the control plane, once per disk node)
+####################################
+cat <<END
+
+Disk node set up. Still to do:
+  - put the silos' shared root key in /root/.ssh/ (id_rsa) so the nightly send to $BACKUPHOST works;
+    test: ssh -o BatchMode=yes root@$BACKUPHOST hostname ; then /usr/local/sbin/zfs_backup_linux.sh
+  - on the control plane:  kubectl label node `hostname` disk-present=yes
+Check: zpool status $POOL ; zpool get autoreplace $POOL ; systemctl is-active zfs-zed smartd
+END
