@@ -126,82 +126,110 @@ fi
 cat <<"EOF">$INSTALL_DIR/usr/local/sbin/sciencedata_bridge.sh
 #!/bin/bash
 
-# Figure out the IP of the master
-master_host=`grep -E '^ *server:' /etc/kubernetes/admin.conf | sed -E 's|.* https://([^:]*):*[0-9]*$|\1|'`
-master_ip=`grep -E " *$master_host$" /etc/hosts | awk '{print $1}'`
+# sciencedata_bridge.sh [-s]
+#
+# Wires this kubernetes node's pod bridge (cni0, pods in 10.2.0.0/16) to the
+# ScienceData pod VLAN (vlan300 on the 10.0 NIC, this node = 10.2.0.<n>), and
+# sets the firewall/NAT rules for the pods. Run at boot by sciencedata_bridge.service,
+# safe to re-run at any time (every step checks or removes before it adds), and
+# the same on the master and on worker nodes. "-s" takes it all down again.
+#
+# Facts are derived, not configured:
+#   master      host in /etc/kubernetes/admin.conf -> /etc/hosts (fallback 10.0.0.12)
+#   n           last octet of this node's 10.0 address
+#   10.0 NIC    the interface carrying that address
+# DRYRUN=1 prints the commands instead of running them.
 
-ip_num=`grep "$HOSTNAME" /etc/hosts | tail -1 | awk '{print $1}' | sed -E 's|10\.0\.[0-9]+\.||'`
+API_SERVICE_IP=10.0.0.65   # kubernetes API service (coredns needs it)
+DNS_SERVICE_IP=10.0.0.74   # coredns service
+POD_NET=10.2.0.0/16
+ADMIN_NET=10.0.0.0/16
 
-# Add master as gateway
-LOCAL_NIC=`ip link | grep ' UP ' | awk -F : '{print $2}' | sed -E 's|^ +||' | while read name; do ls -ld /sys/class/net/$name 2>/dev/null | ( grep -v virtual >&/dev/null ) && echo $name; done | head -1`
-#ip route del `ip route | grep default | grep '10.0.0.1 '`
-#ip route add default via 10.0.0.12 dev $LOCAL_NIC proto static
+run() { if [ -n "$DRYRUN" ]; then echo "+ $*"; else "$@"; fi; }
 
-if [ "$1" == "-s" ];then
-	ip addr del 10.2.${ip_num}.1/16 dev cni0
-	ip route del 10.2.0.0/16 via 10.2.${ip_num}.1 dev cni0 proto static
-	brctl delif cni0 vlan300
-	ip link del vlan300
-	iptables -D INPUT -s 10.2.0.0/16 -d 10.0.0.65/32 -p tcp ! --dport 22 -j ACCEPT
-	iptables -D INPUT -s 10.2.0.0/16 -d 10.0.0.74/32 -p tcp ! --dport 22 -j ACCEPT
-	iptables -D INPUT -s 10.2.0.0/16 -d 10.0.0.${ip_num}/32 -p tcp ! --dport 22 -j ACCEPT
-	iptables -D INPUT -s 10.2.0.0/16 -d 10.0.0.0/16 -j DROP
-	iptables -D FORWARD -s 10.2.0.0/16 -d 10.0.0.0/16 -j DROP
-	iptables -t nat -D POSTROUTING -s 10.2.0.0/16  ! -d 10.2.0.0/16 -j MASQUERADE
-	iptables -t nat -D POSTROUTING -s 10.0.0.0/16  ! -d 10.0.0.0/16 -j MASQUERADE
-	# Don't masquerade http requests to 10.0.0.12 from test silos on 10.2. - so blocking from others actually works and we can unblock them in run_pod.php
-	iptables -t nat -D POSTROUTING -s 10.2.0.0/16 -d ${master_ip}/32 -p tcp --dport 80 -j RETURN
-	iptables -D FORWARD -s 10.2.0.0/16 -d ${master_ip}/32 -j ACCEPT
-else
-	# Create vlan300 interface
-	ifconfig vlan300 || ip link add link ${LOCAL_NIC} vlan300 type vlan id 300 && ip addr add 10.2.0.${ip_num}/16 dev vlan300
-	ip link set dev vlan300 up
-	# Wait max 20 seconds for cni0 to be up (it'll be created with the first pod hosted)
-	i=0
-	until [ $i -eq 5 ] || ifconfig cni0; do
-		echo $(( i++ ))
-		sleep 4
-	done
-	# Create bridge if not there 
-	#ifconfig cni0 || brctl addbr cni0
-	ip link set dev cni0 up
-	# Bridge cni0 to vlan300
-	brctl addif cni0 vlan300
-	# use cni0 as local gateway for vlan300
-	ip addr add 10.2.${ip_num}.1/16 dev cni0
-	ip route add 10.2.0.0/16 via 10.2.${ip_num}.1 dev cni0 proto static
-	# Allow coredns to reach admin ip
-	iptables -D INPUT -s 10.2.0.0/16 -d 10.0.0.65/32 -p tcp ! --dport 22 -j ACCEPT
-	iptables -I INPUT -s 10.2.0.0/16 -d 10.0.0.65/32 -p tcp ! --dport 22 -j ACCEPT
-	iptables -D INPUT -s 10.2.0.0/16 -d 10.0.0.74/32 -p tcp ! --dport 22 -j ACCEPT
-	iptables -I INPUT -s 10.2.0.0/16 -d 10.0.0.74/32 -p tcp ! --dport 22 -j ACCEPT
-	iptables -D INPUT -s 10.2.0.0/16 -d 10.0.0.${ip_num}/32 -p tcp ! --dport 22 -j ACCEPT
-	iptables -I INPUT -s 10.2.0.0/16 -d 10.0.0.${ip_num}/32 -p tcp ! --dport 22 -j ACCEPT
-	# Disallow traffic from pods to admin net
-	iptables -D INPUT -s 10.2.0.0/16 -d 10.0.0.0/16 -j DROP
-	iptables -A INPUT -s 10.2.0.0/16 -d 10.0.0.0/16 -j DROP
-	iptables -D FORWARD -s 10.2.0.0/16 -d 10.0.0.0/16 -j DROP
-	iptables -A FORWARD -s 10.2.0.0/16 -d 10.0.0.0/16 -j DROP
-	# Allow pods to use the local cni0 as gateway
-	iptables -t nat -D POSTROUTING -s 10.2.0.0/16  ! -d 10.2.0.0/16 -j MASQUERADE
-	iptables -t nat -A POSTROUTING -s 10.2.0.0/16  ! -d 10.2.0.0/16 -j MASQUERADE
-	# Don't masquerade http requests from pods to the kube master: run_pod.php & co. then
-	# see the pod's own 10.2 address, so their 10.0 source check keeps user pods out while the
-	# test silos (NC dev pods) can be allowed by address. Must come BEFORE the MASQUERADE rule.
-	iptables -t nat -D POSTROUTING -s 10.2.0.0/16 -d ${master_ip}/32 -p tcp --dport 80 -j RETURN
-	iptables -t nat -I POSTROUTING -s 10.2.0.0/16 -d ${master_ip}/32 -p tcp --dport 80 -j RETURN
-	# Allow worker nodes to use master as gateway
-	iptables -t nat -D POSTROUTING -s 10.0.0.0/16  ! -d 10.0.0.0/16 -j MASQUERADE
-	iptables -t nat -A POSTROUTING -s 10.0.0.0/16  ! -d 10.0.0.0/16 -j MASQUERADE
-	# Allow user pods (with IPs in 10.2.0/16) to access services (in 10.0.0.64/26)
-	# It needs only exist on the worker nodes
-	iptables -I FORWARD -s 10.2.0.0/16 -d ${master_ip}/32 -j ACCEPT
-	# Dunno where these come from, but they obstruct things...
-	ip route del 1.1.1.1 via 10.0.0.1
-	ip route del 10.0.0.1
-	ip route del 10.2.0.0/16 dev vlan300
-	
+# --- facts --------------------------------------------------------------------
+master_host=$(sed -nE 's|^ *server: https?://([^:/]+).*|\1|p' /etc/kubernetes/admin.conf 2>/dev/null | head -1)
+master_ip=$(awk -v h="$master_host" '$1 !~ /^#/ { for (i = 2; i <= NF; i++) if ($i == h) { print $1; exit } }' /etc/hosts)
+[ -z "$master_ip" ] && [ -n "$master_host" ] && master_ip=$(getent ahostsv4 "$master_host" | awk '{print $1; exit}')
+[ -z "$master_ip" ] && master_ip=10.0.0.12
+
+my_ip=$(ip -o -4 addr show | awk '$4 ~ /^10\.0\./ { sub("/.*", "", $4); print $4; exit }')
+if [ -z "$my_ip" ]; then
+	my_ip=$(awk -v h="$(hostname)" '$1 ~ /^10\.0\./ { for (i = 2; i <= NF; i++) if ($i == h) { print $1; exit } }' /etc/hosts)
 fi
+if [ -z "$my_ip" ]; then
+	echo "sciencedata_bridge: no 10.0 address on this node" >&2
+	exit 1
+fi
+ip_num=${my_ip##*.}
+local_if=$(ip -o -4 addr show to "$my_ip" | awk '{print $2; exit}')
+
+echo "sciencedata_bridge: master $master_ip, this node $my_ip (n=$ip_num) on $local_if"
+
+# --- iptables helpers: a rule exists at most once -----------------------------
+# usage: rule_del <table> <chain> <rule...>   /  rule_set <-I|-A> <table> <chain> <rule...>
+rule_del() { local t=$1 c=$2; shift 2; while iptables -t "$t" -C "$c" "$@" >/dev/null 2>&1; do run iptables -t "$t" -D "$c" "$@"; [ -n "$DRYRUN" ] && break; done; }
+rule_set() { local how=$1 t=$2 c=$3; shift 3; rule_del "$t" "$c" "$@"; run iptables -t "$t" "$how" "$c" "$@"; }
+
+if [ "$1" == "-s" ]; then
+	# --- teardown ---------------------------------------------------------------
+	run ip addr del 10.2.${ip_num}.1/16 dev cni0 2>/dev/null
+	run ip link set dev vlan300 nomaster 2>/dev/null
+	run ip link del vlan300 2>/dev/null
+	rule_del filter INPUT -s $POD_NET -d $API_SERVICE_IP/32 -p tcp ! --dport 22 -j ACCEPT
+	rule_del filter INPUT -s $POD_NET -d $DNS_SERVICE_IP/32 -p tcp ! --dport 22 -j ACCEPT
+	rule_del filter INPUT -s $POD_NET -d $my_ip/32 -p tcp ! --dport 22 -j ACCEPT
+	rule_del filter INPUT -s $POD_NET -d $ADMIN_NET -j DROP
+	rule_del filter FORWARD -s $POD_NET -d $master_ip/32 -j ACCEPT
+	rule_del filter FORWARD -s $POD_NET -d $ADMIN_NET -j DROP
+	rule_del nat POSTROUTING -s $POD_NET -d $master_ip/32 -p tcp --dport 80 -j RETURN
+	rule_del nat POSTROUTING -s $POD_NET ! -d $POD_NET -j MASQUERADE
+	rule_del nat POSTROUTING -s $ADMIN_NET ! -d $ADMIN_NET -j MASQUERADE
+	exit 0
+fi
+
+# --- vlan300: this node's leg on the pod VLAN ----------------------------------
+ip link show vlan300 >/dev/null 2>&1 || run ip link add link "$local_if" name vlan300 type vlan id 300
+run ip addr replace 10.2.0.${ip_num}/16 dev vlan300
+run ip link set dev vlan300 up
+
+# --- cni0: created by the CNI plugin with the first pod. After a reboot the pods
+# come back within a minute or two; wait for it, else create it ourselves (the
+# bridge plugin adopts an existing bridge of that name).
+i=0
+until ip link show cni0 >/dev/null 2>&1 || [ $i -ge 30 ]; do
+	[ $i -eq 0 ] && echo "sciencedata_bridge: waiting for cni0"
+	i=$((i + 1)); sleep 4
+done
+ip link show cni0 >/dev/null 2>&1 || run ip link add cni0 type bridge
+run ip link set dev cni0 up
+# bridge vlan300 into cni0, cni0 is the local gateway of the pod VLAN
+[ "$(cat /sys/class/net/vlan300/master/ifindex 2>/dev/null)" = "$(cat /sys/class/net/cni0/ifindex 2>/dev/null)" ] || run ip link set dev vlan300 master cni0
+run ip addr replace 10.2.${ip_num}.1/16 dev cni0
+# (the connected route 10.2.0.0/16 dev cni0 that this address brings is the pod-VLAN route)
+
+# --- firewall: pods may reach the cluster services and this node, nothing else on 10.0
+rule_set -I filter INPUT -s $POD_NET -d $API_SERVICE_IP/32 -p tcp ! --dport 22 -j ACCEPT
+rule_set -I filter INPUT -s $POD_NET -d $DNS_SERVICE_IP/32 -p tcp ! --dport 22 -j ACCEPT
+rule_set -I filter INPUT -s $POD_NET -d $my_ip/32 -p tcp ! --dport 22 -j ACCEPT
+rule_set -A filter INPUT -s $POD_NET -d $ADMIN_NET -j DROP
+# forwarded: only the master (the kube commands and the services NATed there)
+rule_set -I filter FORWARD -s $POD_NET -d $master_ip/32 -j ACCEPT
+rule_set -A filter FORWARD -s $POD_NET -d $ADMIN_NET -j DROP
+
+# --- NAT: pods leave through this node's address, workers through the master ---
+rule_set -A nat POSTROUTING -s $POD_NET ! -d $POD_NET -j MASQUERADE
+rule_set -A nat POSTROUTING -s $ADMIN_NET ! -d $ADMIN_NET -j MASQUERADE
+# ... except HTTP to the master: run_pod.php & co. must see the pod's own 10.2
+# address, so their 10.0 source check keeps user pods out while the test silos
+# (the Nextcloud dev pods) are admitted by address. Inserted first = before MASQUERADE.
+rule_set -I nat POSTROUTING -s $POD_NET -d $master_ip/32 -p tcp --dport 80 -j RETURN
+
+# --- stray routes that obstruct things (left by the installer / dhcp) ----------
+ip route show 1.1.1.1 | grep -q . && run ip route del 1.1.1.1 via 10.0.0.1
+ip route show 10.0.0.1 | grep -q '^10.0.0.1 ' && run ip route del 10.0.0.1
+ip route show $POD_NET dev vlan300 | grep -q . && run ip route del $POD_NET dev vlan300
+exit 0
 EOF
 
 chmod +x $INSTALL_DIR/usr/local/sbin/sciencedata_bridge.sh
@@ -214,7 +242,9 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+RemainAfterExit=yes
 ExecStart=/usr/local/sbin/sciencedata_bridge.sh
+ExecStop=/usr/local/sbin/sciencedata_bridge.sh -s
 
 [Install]
 WantedBy=default.target
