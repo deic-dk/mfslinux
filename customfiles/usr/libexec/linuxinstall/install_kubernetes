@@ -318,6 +318,20 @@ if [ "$NODETYPE" == "master" ]; then
 	# No idea why this is necessary
 	# https://slack-archive.rancher.com/t/10289479/hi-since-a-few-hours-ago-my-dns-in-k3s-stopped-working-nobod
 	kubectl --namespace=kube-system rollout restart deploy/coredns
+
+	# Eviction settings (Kubernetes' own, nothing to run): a node that hit disk pressure
+	# keeps its NoSchedule taint for two hours after the pressure is gone (default 5 min,
+	# which let an evicted pod bounce straight back and be evicted again, hundreds of
+	# times on a node with a small disk), and a reclaim frees real room. Cluster-wide:
+	# every node joining later takes its kubelet config from this ConfigMap.
+	kubectl get cm kubelet-config -n kube-system -o jsonpath='{.data.kubelet}' > /tmp/kubelet-config.yaml
+	sed -i 's/^evictionPressureTransitionPeriod:.*/evictionPressureTransitionPeriod: 2h/' /tmp/kubelet-config.yaml
+	grep -q '^evictionPressureTransitionPeriod:' /tmp/kubelet-config.yaml || echo 'evictionPressureTransitionPeriod: 2h' >> /tmp/kubelet-config.yaml
+	printf 'evictionMinimumReclaim:\n  nodefs.available: 5Gi\n  imagefs.available: 5Gi\n' >> /tmp/kubelet-config.yaml
+	kubectl create cm kubelet-config -n kube-system --from-file=kubelet=/tmp/kubelet-config.yaml --dry-run=client -o yaml | kubectl apply -f -
+	kubeadm upgrade node phase kubelet-config && systemctl restart kubelet
+	# Evicted/failed pod records are garbage-collected beyond the newest 20 (default 12500 = never)
+	sed -i 's|^\(\s*\)- --controllers=|\1- --terminated-pod-gc-threshold=20\n\1- --controllers=|' /etc/kubernetes/manifests/kube-controller-manager.yaml
 	
 	# Allow the master to run pods, do
 	# kubectl taint node `hostname` node-role.kubernetes.io/control-plane:NoSchedule-
