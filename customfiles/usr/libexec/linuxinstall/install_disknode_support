@@ -31,6 +31,9 @@ apt install -y zfsutils-linux zfs-zed smartmontools msmtp msmtp-mta ledmon
 if zpool list -H -o name 2>/dev/null | grep -qx "$POOL"; then
 	echo "pool $POOL exists - leaving it alone"
 else
+	# the installer's disk roles (select_disks): the containers and cache disks are not pool disks
+	[ -r /etc/sciencedata_disks ] && . /etc/sciencedata_disks
+	SKIP_DISKS="$SKIP_DISKS $SYSTEM_DISK $BACKUP_DISK $CONTAINERS_DISK $CACHE_DISK"
 	if [ -z "$POOL_LAYOUT" ]; then
 		ids=""
 		for d in `lsblk -dn -o NAME,SIZE,TYPE -b | awk '$3=="disk" && $2>=1000000000000 {print $1}'`; do
@@ -64,6 +67,12 @@ else
 		-O compression=lz4 -O atime=off -O xattr=sa -m /$POOL $POOL $POOL_LAYOUT || exit 1
 	zfs create $POOL/data
 fi
+# A cache disk (select_disks: the fourth extra disk) as L2ARC, once
+[ -r /etc/sciencedata_disks ] && . /etc/sciencedata_disks
+if [ -n "$CACHE_DISK" ] && ! zpool status $POOL | grep -q -A1 "^\s*cache"; then
+	id=`ls -l /dev/disk/by-id/ | awk -v d="$CACHE_DISK" '$NF=="../../"d && $9 !~ /^wwn-/ {print $9}' | head -1`
+	[ -n "$id" ] && zpool add $POOL cache /dev/disk/by-id/$id && echo "cache disk /dev/$CACHE_DISK added to $POOL"
+fi
 mkdir -p /$POOL/data/kube
 
 ####################################
@@ -71,6 +80,34 @@ mkdir -p /$POOL/data/kube
 ####################################
 sed -i 's/^#\?ZED_EMAIL_ADDR=.*/ZED_EMAIL_ADDR="root"/; s/^#\?ZED_NOTIFY_VERBOSE=.*/ZED_NOTIFY_VERBOSE=1/' /etc/zfs/zed.d/zed.rc
 systemctl restart zfs-zed
+
+# Container storage. The rule (select_disks): a containers disk - the largest extra disk
+# beyond system, backup and the pool - is preferred and the installer has already put it
+# on /var/lib/containers; only a disk node WITHOUT one gets a sparse zvol with xfs on the
+# pool (overlayfs needs xfs or ext4 underneath; a ZFS dataset is refused by
+# containers/storage with zfs 2.1), mounted at /var/lib/containers, labelled CONTAINERS
+# as well; crio then waits for the pool at boot. What CRI-O has pulled so far is moved.
+if mountpoint -q /var/lib/containers || blkid -L CONTAINERS >/dev/null 2>&1; then
+	echo "container storage already on its own filesystem ($(findmnt -n -o SOURCE /var/lib/containers 2>/dev/null || blkid -L CONTAINERS)) - leaving it"
+elif ! zfs list $POOL/containers >/dev/null 2>&1; then
+	command -v mkfs.xfs >/dev/null || apt-get install -y xfsprogs
+	zfs create -s -V 500G -o compression=lz4 $POOL/containers
+	sleep 2
+	mkfs.xfs -f -L CONTAINERS /dev/zvol/$POOL/containers
+	systemctl stop kubelet crio
+	mkdir -p /mnt/containers_new && mount -t xfs /dev/zvol/$POOL/containers /mnt/containers_new
+	rsync -aHAX --exclude='storage/overlay/*/merged/*' /var/lib/containers/ /mnt/containers_new/
+	umount /mnt/containers_new && rmdir /mnt/containers_new
+	mount | grep "/var/lib/containers/" | awk '{print $3}' | sort -r | while read m; do umount -l "$m" 2>/dev/null; done
+	rm -rf /var/lib/containers/*
+	grep -q "LABEL=CONTAINERS" /etc/fstab || echo "LABEL=CONTAINERS	/var/lib/containers	xfs	defaults,noatime,nofail,x-systemd.requires=zfs-volumes.target,x-systemd.device-timeout=90	0	2" >> /etc/fstab
+	mkdir -p /etc/systemd/system/crio.service.d
+	printf '[Unit]\n# container storage lives on the pool (zvol %s/containers, xfs)\nRequiresMountsFor=/var/lib/containers\n' "$POOL" > /etc/systemd/system/crio.service.d/containers-mount.conf
+	systemctl daemon-reload
+	mount /var/lib/containers
+	systemctl start crio && systemctl start kubelet
+	echo "container storage: /var/lib/containers on zvol $POOL/containers (xfs, LABEL=CONTAINERS)"
+fi
 systemctl enable --now smartd
 
 # SMTP relay credentials: the same private file the FreeBSD installer uses
@@ -120,5 +157,5 @@ Disk node set up. Still to do:
   - put the silos' shared root key in /root/.ssh/ (id_rsa) so the nightly send to $BACKUPHOST works;
     test: ssh -o BatchMode=yes root@$BACKUPHOST hostname ; then /usr/local/sbin/zfs_backup_linux.sh
   - on the control plane:  kubectl label node `hostname` disk-present=yes
-Check: zpool status $POOL ; zpool get autoreplace $POOL ; systemctl is-active zfs-zed smartd
+Check: zpool status $POOL ; zpool get autoreplace $POOL ; systemctl is-active zfs-zed smartd ; findmnt /var/lib/containers
 END

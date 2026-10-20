@@ -1,19 +1,15 @@
 #!/bin/bash
 
-# Use the first two disks found
-disks=`ls /dev | grep -E 'sd[^0-9]$' | head -2`
-nvmes=`ls /dev | grep -E 'nvme0n[0-9]$' | head -2`
-
-# A disk that carries our CONTAINERS label is container storage (see below), not a
-# system or backup disk - also when it is the second disk of the machine. That is how a
-# node with a small root SSD and one big data disk keeps /var/lib/containers on the big
-# disk across reinstalls: label it once (mkfs.xfs -L CONTAINERS) and the installer
-# leaves the backup-root scheme aside for it.
-disks=`for d in $disks; do [ "\`lsblk -dn -o LABEL /dev/$d 2>/dev/null | xargs\`" = CONTAINERS ] || echo $d; done`
-nvmes=`for d in $nvmes; do [ "\`lsblk -dn -o LABEL /dev/$d 2>/dev/null | xargs\`" = CONTAINERS ] || echo $d; done`
-
-numdisks=`echo $disks $nvmes| wc -w`
-firstdisk=`echo "${nvmes[0]} ${disks[0]}" | head -1 | xargs`
+# What each disk is for - see select_disks (system, backup, containers, cache; the
+# pool's disks are never touched). The partitioning below runs over the system disk and,
+# when there is one, the backup disk; nvme names get a "p" before the partition number.
+. "`dirname -- "$0"`/select_disks"
+echo "disk roles: `disks_summary`"
+[ -n "$SYSTEM_DISK" ] || { echo "no disk for the system" >&2; exit 1; }
+disks="$SYSTEM_DISK${BACKUP_DISK:+ $BACKUP_DISK}"
+nvmes=""
+numdisks=`echo $disks | wc -w`
+firstdisk=$SYSTEM_DISK
 
 root_part_label=ROOT
 swap_part_label=SWAP
@@ -75,33 +71,25 @@ echo "PARTLABEL=$swap_part_label none swap sw 0 0" >> /mnt/etc/fstab
 echo "PARTLABEL=$root_part_label / ext4 rw 1 1" >> /mnt/etc/fstab
 echo "proc /proc proc defaults 0 0" >> /mnt/etc/fstab
 
-# Container storage on a disk of its own, if the machine has one beyond the two
-# system disks: CRI-O's /var/lib/containers holds the pulled images and every
-# container's writable layer (what user pods write outside their volumes). On the
-# root disk, a few large images plus a busy pod push the node under the kubelet's
-# disk-pressure threshold and pods get evicted. On its own filesystem it is the
-# kubelet's "imagefs", with its own threshold, and the root disk keeps its room.
-# Only a disk that is blank, or that already carries our CONTAINERS label from a
-# previous install, is used - a disk with anything else on it is left alone.
-for disk in `lsblk -dn -o NAME,TYPE | awk '$2=="disk"{print $1}' | grep -E '^(sd[a-z]+|nvme[0-9]+n[0-9]+)$'`; do
-	# skip the two system disks ($disks/$nvmes are newline-separated: let the shell split them)
-	case " `echo $disks $nvmes` " in *" $disk "*) continue;; esac
-	label=`lsblk -dn -o LABEL /dev/$disk | xargs`
-	fstype=`lsblk -dn -o FSTYPE /dev/$disk | xargs`
-	parts=`lsblk -n -o NAME /dev/$disk | tail -n +2 | wc -l`
-	if [ "$label" = "CONTAINERS" ] || [ -z "$fstype" -a "$parts" -eq 0 ]; then
-		echo "Using /dev/$disk for /var/lib/containers"
-		mkfs.xfs -f -L CONTAINERS /dev/$disk
-		mkdir -p /mnt/var/lib/containers
-		mount -t xfs /dev/$disk /mnt/var/lib/containers
-		echo "LABEL=CONTAINERS	/var/lib/containers	xfs	defaults,noatime,nofail	0	2" >> /mnt/etc/fstab
-		break
-	fi
-done
+# Container storage on its own disk (select_disks: the largest extra disk, or one
+# already labelled CONTAINERS). CRI-O's /var/lib/containers holds the pulled images and
+# every container's writable layer; on the root disk a few large images push the node
+# under the kubelet's disk-pressure threshold and pods get evicted. A disk that already
+# carries the label is kept as it is (its images survive the reinstall).
+if [ -n "$CONTAINERS_DISK" ]; then
+	echo "Using /dev/$CONTAINERS_DISK for /var/lib/containers"
+	[ "`lsblk -dn -o LABEL /dev/$CONTAINERS_DISK | xargs`" = "CONTAINERS" ] || mkfs.xfs -f -L CONTAINERS /dev/$CONTAINERS_DISK
+	mkdir -p /mnt/var/lib/containers
+	mount -t xfs /dev/$CONTAINERS_DISK /mnt/var/lib/containers
+	echo "LABEL=CONTAINERS	/var/lib/containers	xfs	defaults,noatime,nofail	0	2" >> /mnt/etc/fstab
+fi
+# The roles, for install_disknode_support (cache disk, disks to leave alone) and for a human
+mkdir -p /mnt/etc
+printf 'SYSTEM_DISK=%s\nBACKUP_DISK=%s\nCONTAINERS_DISK=%s\nCACHE_DISK=%s\nPOOL_DISKS="%s"\n' "$SYSTEM_DISK" "$BACKUP_DISK" "$CONTAINERS_DISK" "$CACHE_DISK" "$POOL_DISKS" > /mnt/etc/sciencedata_disks
 
 if [ $numdisks -gt 1 ]; then
 
-	seconddisk=`echo "${nvmes[0]} ${disks[0]}" | head -2 | tail -1`
+	seconddisk=$BACKUP_DISK
 	
 	p=""
 	echo $seconddisk | grep nvme >& /dev/null

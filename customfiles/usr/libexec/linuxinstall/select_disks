@@ -1,0 +1,73 @@
+#!/bin/bash
+# select_disks - decide what each disk of a kubernetes node is for. Sourced by autopart
+# and autopart_efi (and read back by install_disknode_support from /etc/sciencedata_disks).
+#
+# The boxes have 24 rotating disks for a ZFS pool and 2-4 SSDs besides. Priorities for
+# the SSDs ("extra disks" = everything that is not the pool's), Frederik 2026-10-20:
+#   2 extra disks: system + containers
+#   3 extra disks: system + system backup + containers
+#   4 extra disks: system + system backup + containers + ZFS cache
+# (On the FreeBSD silos a system backup ranks above everything; a worker node ranks its
+# container storage above the backup, since a worker is quickly reinstalled.)
+# Existing ZFS pools are never touched. Roles that are already on a disk are kept: a
+# disk labelled CONTAINERS stays container storage, the disk labelled ROOT stays the
+# system disk. Otherwise: the smallest extra disk is the system disk (120 GB is plenty),
+# the largest is container storage (images), the next smallest the backup (it must hold
+# a copy of the system disk), what is left is the cache.
+#
+# Sets: SYSTEM_DISK BACKUP_DISK CONTAINERS_DISK CACHE_DISK (bare names, e.g. sda) and
+# POOL_DISKS (space-separated, untouched).
+
+SYSTEM_DISK=""; BACKUP_DISK=""; CONTAINERS_DISK=""; CACHE_DISK=""; POOL_DISKS=""
+_extras=""   # "size name" lines
+
+_zfs_member() { lsblk -n -o FSTYPE "/dev/$1" 2>/dev/null | grep -q zfs_member; }
+_label() { lsblk -dn -o LABEL "/dev/$1" 2>/dev/null | xargs; }
+
+# 1. pool disks: anything carrying a zfs label, and - on a box with 4 or more blank
+#    rotating disks of 1 TB or more - those too (a disk node about to get its pool).
+_big_rot=""
+while read -r name size rota type; do
+	[ "$type" = disk ] || continue
+	case "$name" in sd*|nvme*|vd*) ;; *) continue;; esac
+	if _zfs_member "$name"; then POOL_DISKS="$POOL_DISKS $name"; continue; fi
+	if [ "$rota" = 1 ] && [ "$size" -ge 1000000000000 ] && [ -z "`lsblk -n -o FSTYPE /dev/$name | grep .`" ] \
+	   && [ "`lsblk -n -o NAME /dev/$name | wc -l`" -le 1 ]; then
+		_big_rot="$_big_rot $name:$size"; continue
+	fi
+	_extras="$_extras
+$size $name"
+done < <(lsblk -dn -b -o NAME,SIZE,ROTA,TYPE)
+if [ `echo $_big_rot | wc -w` -ge 4 ]; then
+	for x in $_big_rot; do POOL_DISKS="$POOL_DISKS ${x%%:*}"; done
+else
+	for x in $_big_rot; do _extras="$_extras
+${x##*:} ${x%%:*}"; done
+fi
+POOL_DISKS=`echo $POOL_DISKS`
+
+# 2. roles already on disks are kept
+_rest=""
+while read -r size name; do
+	[ -n "$name" ] || continue
+	case "`_label $name`" in
+		CONTAINERS) CONTAINERS_DISK=$name; continue;;
+	esac
+	if lsblk -n -o LABEL "/dev/$name" 2>/dev/null | grep -qx ROOT; then SYSTEM_DISK=$name; continue; fi
+	_rest="$_rest
+$size $name"
+done < <(echo "$_extras" | grep . | sort -n)
+
+# 3. the rest by size: smallest -> system (if none yet), largest -> containers (if none
+#    yet), next smallest -> backup, the one left -> cache
+_names=`echo "$_rest" | grep . | sort -n | awk '{print $2}'`
+_n=`echo $_names | wc -w`
+if [ -z "$SYSTEM_DISK" ] && [ $_n -gt 0 ]; then SYSTEM_DISK=`echo $_names | awk '{print $1}'`; _names=`echo $_names | cut -d' ' -f2-`; _n=$((_n-1)); fi
+if [ -z "$CONTAINERS_DISK" ] && [ $_n -gt 0 ]; then CONTAINERS_DISK=`echo $_names | awk '{print $NF}'`; _names=`echo $_names | awk '{$NF=""; print}'`; _n=$((_n-1)); fi
+if [ $_n -gt 0 ]; then BACKUP_DISK=`echo $_names | awk '{print $1}'`; _names=`echo $_names | cut -d' ' -f2-`; _n=$((_n-1)); fi
+if [ $_n -gt 0 ]; then CACHE_DISK=`echo $_names | awk '{print $1}'`; fi
+[ "$SYSTEM_DISK" = "$CONTAINERS_DISK" ] && CONTAINERS_DISK=""   # a single-disk box
+
+disks_summary() {
+	echo "system=$SYSTEM_DISK backup=${BACKUP_DISK:-none} containers=${CONTAINERS_DISK:-none} cache=${CACHE_DISK:-none} pool=[${POOL_DISKS:-none}]"
+}
