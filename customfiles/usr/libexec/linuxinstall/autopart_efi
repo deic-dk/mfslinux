@@ -4,6 +4,14 @@
 disks=`ls /dev | grep -E 'sd[^0-9]$' | head -2`
 nvmes=`ls /dev | grep -E 'nvme0n[0-9]$' | head -2`
 
+# A disk that carries our CONTAINERS label is container storage (see below), not a
+# system or backup disk - also when it is the second disk of the machine. That is how a
+# node with a small root SSD and one big data disk keeps /var/lib/containers on the big
+# disk across reinstalls: label it once (mkfs.xfs -L CONTAINERS) and the installer
+# leaves the backup-root scheme aside for it.
+disks=`for d in $disks; do [ "\`lsblk -dn -o LABEL /dev/$d 2>/dev/null | xargs\`" = CONTAINERS ] || echo $d; done`
+nvmes=`for d in $nvmes; do [ "\`lsblk -dn -o LABEL /dev/$d 2>/dev/null | xargs\`" = CONTAINERS ] || echo $d; done`
+
 numdisks=`echo $disks $nvmes| wc -w`
 firstdisk=`echo "${nvmes[0]} ${disks[0]}" | head -1 | xargs`
 
