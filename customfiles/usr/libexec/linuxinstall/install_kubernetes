@@ -272,6 +272,14 @@ $CHROOT $INSTALL_DIR bash -c "echo '1' > /proc/sys/net/bridge/bridge-nf-call-ipt
 # Well, seems to be disabled by netscript
 $CHROOT $INSTALL_DIR systemctl disable netscript
 
+# Node labels the kubelet registers with (applied when the node first joins;
+# nodes already in the cluster are labelled by hand). avx-present: Claude Code's
+# native x64 binary needs AVX and dies with "Illegal instruction" without it;
+# pod_manifests/ubuntu_noble_claude.yaml selects on this label.
+if grep -q -w avx /proc/cpuinfo; then
+	echo 'KUBELET_EXTRA_ARGS="--node-labels=avx-present=yes"' > $INSTALL_DIR/etc/default/kubelet
+fi
+
 if [ "$NODETYPE" == "master" ]; then
 	echo '1' > /proc/sys/net/bridge/bridge-nf-call-iptables
 	# Initialize
