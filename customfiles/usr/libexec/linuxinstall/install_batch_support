@@ -139,14 +139,13 @@ if [ $? -ne 0 ]; then
 	kubectl cp $LOCAL_DIR/hostkey_unenc.pem $POD_NAME:$CERT_DIR/hostkey_unenc.pem
 	ca_cert_name=`openssl x509 -in $LOCAL_DIR/hostcert.pem -hash | head -1`.0
 	kubectl cp $LOCAL_DIR/hostcert.pem $POD_NAME:$CERT_DIR/certificates/$ca_cert_name
+	kubectl exec -it $POD_NAME -- bash -c "chmod go+rx /root/; chown -R www-data:www-data $CERT_DIR"
+	# Restart - only when the cert/key were just replaced (a fresh pod). Outside this
+	# block the daily cron run restarted Apache and both daemons every day.
+	kubectl exec -it $POD_NAME -- bash -c "set -m; service apache2 restart; service apache2 status"
+	kubectl exec -it $POD_NAME -- bash -c "set -m; service spoolmanager restart; service spoolmanager status"
+	kubectl exec -it $POD_NAME -- bash -c "set -m; service queuemanager restart; service queuemanager status"
 fi
-
-kubectl exec -it $POD_NAME -- bash -c "chmod go+rx /root/; chown -R www-data:www-data $CERT_DIR"
-
-# Restart - in case this was a fresh pod and cert/key locations were modified
-kubectl exec -it $POD_NAME -- bash -c "set -m; service apache2 restart; service apache2 status"
-kubectl exec -it $POD_NAME -- bash -c "set -m; service spoolmanager restart; service spoolmanager status"
-kubectl exec -it $POD_NAME -- bash -c "set -m; service queuemanager restart; service queuemanager status"
 
 # Get index.html from ScienceData
 curl -o $LOCAL_DIR/index.html -L https://sciencedata.dk/public/kubefiles_public/batch/index.html
@@ -156,16 +155,18 @@ EOF
 
 ls $INSTALL_DIR/etc/cron.hourly/batch >&/dev/null || \
 cat <<EOF > $INSTALL_DIR/etc/cron.hourly/batch_host
+#!/bin/sh
 /usr/local/sbin/batch_host.sh
 EOF
 
 ls $INSTALL_DIR/etc/cron.daily/batch >&/dev/null || \
 cat <<EOF > $INSTALL_DIR/etc/cron.daily/batch_cert
+#!/bin/sh
 /usr/local/sbin/batch_cert.sh
 EOF
 
 chmod +x $INSTALL_DIR/usr/local/sbin/batch_host.sh $INSTALL_DIR/usr/local/sbin/batch_cert.sh \
-$INSTALL_DIR/etc/cron.daily/batch_host $INSTALL_DIR/etc/cron.daily/batch_cert
+$INSTALL_DIR/etc/cron.hourly/batch_host $INSTALL_DIR/etc/cron.daily/batch_cert
 
 ########################
 ### caddy configuration

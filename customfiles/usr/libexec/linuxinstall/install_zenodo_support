@@ -27,6 +27,7 @@ export KUBECONFIG
 EOF
 
 cat <<EOF > /etc/cron.daily/zenodo
+#!/bin/sh
 /usr/local/sbin/zenodo_backup.sh
 EOF
 
@@ -72,6 +73,7 @@ grep "zenodo" /etc/hosts >&/dev/null || echo "$lbip	zenodo" >> /etc/hosts
 EOF
 
 cat <<EOF > /etc/cron.hourly/zenodo
+#!/bin/sh
 /usr/local/sbin/zenodo_host.sh
 EOF
 
@@ -88,6 +90,7 @@ grep "blossom" /etc/hosts >&/dev/null || echo "$lbip	blossom" >> /etc/hosts
 EOF
 
 cat <<EOF > /etc/cron.hourly/celery
+#!/bin/sh
 /usr/local/sbin/celery_host.sh
 EOF
 
@@ -104,6 +107,7 @@ grep "adminer" /etc/hosts >&/dev/null || echo "$lbip	adminer" >> /etc/hosts
 EOF
 
 cat <<EOF > /etc/cron.hourly/adminer
+#!/bin/sh
 /usr/local/sbin/adminer_host.sh
 EOF
 
@@ -120,6 +124,7 @@ grep "mq" /etc/hosts >&/dev/null || echo "$lbip	mq" >> /etc/hosts
 EOF
 
 cat <<EOF > /etc/cron.hourly/rabbit
+#!/bin/sh
 /usr/local/sbin/rabbit_host.sh
 EOF
 

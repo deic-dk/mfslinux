@@ -94,6 +94,7 @@ EOF
 
 ls $INSTALL_DIR/etc/cron.hourly/pdfsign >&/dev/null || \
 cat <<EOF > $INSTALL_DIR/etc/cron.hourly/pdfsign_host
+#!/bin/sh
 /usr/local/sbin/pdfsign_host.sh
 EOF
 
