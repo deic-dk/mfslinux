@@ -126,6 +126,21 @@ if [ -z "$POD_NAME" ]; then
 fi
 export POD_NAME
 
+# Wait until the pod has finished starting. Its start.sh creates the host
+# certificate late (configure_services.sh, after fetching the batch user's
+# key/certificate, which can take minutes) and starts dropbear as its very
+# last step. Checked before that, the certificate is missing, ours is copied
+# in - and then overwritten by the pod's own new one-year certificate (seen
+# 2026-10-30: copied ~23:08, overwritten 23:09:43, dropbear up 23:10:03).
+for i in `seq 1 90`; do
+	kubectl exec $POD_NAME -- pgrep -x dropbear >/dev/null 2>&1 && break
+	sleep 10
+done
+if ! kubectl exec $POD_NAME -- pgrep -x dropbear >/dev/null 2>&1; then
+	echo "$POD_NAME has not finished starting after 15 minutes - leaving its certificate alone" >&2
+	exit 1
+fi
+
 [ -d "$LOCAL_DIR" ] || mkdir $LOCAL_DIR
 
 server_exp_seconds=$(( 60*60*24*365*20 )) # The default self-signed cert has a lifetime of 10 years, our's has 100
