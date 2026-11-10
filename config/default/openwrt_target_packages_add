@@ -79,5 +79,7 @@ kmod-ata-ahci_%%KERNEL_VERSION%%-1_x86_64.ipk
 kmod-ata-nvidia-sata_%%KERNEL_VERSION%%-1_x86_64.ipk
 kmod-nvme_%%KERNEL_VERSION%%-1_x86_64.ipk
 kmod-fs-efivarfs_%%KERNEL_VERSION%%-1_x86_64.ipk
+kmod-usb-net_%%KERNEL_VERSION%%-1_x86_64.ipk
+kmod-usb-net-asix_%%KERNEL_VERSION%%-1_x86_64.ipk
 libatomic1_11.2.0-4_x86_64.ipk
 libstdcpp6_11.2.0-4_x86_64.ipk

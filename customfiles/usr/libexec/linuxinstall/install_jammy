@@ -60,7 +60,7 @@ echo "8021q" >> /mnt/etc/modules
 echo options forcedeth msi=0 msix=0 >> /mnt/etc/modprobe.d/options
 
 # Fix for samsung nvme disks -see https://askubuntu.com/questions/972200/bios-does-not-detect-ssd-after-reboot-from-ubuntu-16-04-dell-xps-15/1046374#1046374
-sed -E 's|^(GRUB_CMDLINE_LINUX_DEFAULT)="(.*)"$|\1="\2 nvme_load=YES nvme_core.default_ps_max_latency_us=4950"|' /etc/default/grub
+sed -E 's|^(GRUB_CMDLINE_LINUX_DEFAULT)="(.*)"$|\1="\2 nvme_load=YES nvme_core.default_ps_max_latency_us=4950"|' /mnt/etc/default/grub
 
 # Modules needed by kubernetes
 echo "br_netfilter" >> /mnt/etc/modules
