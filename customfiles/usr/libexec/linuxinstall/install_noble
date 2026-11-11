@@ -2,7 +2,6 @@
 
 # Install base system
 ln -s /usr/share/debootstrap/scripts/gutsy /usr/share/debootstrap/scripts/noble
-rm -rf /mnt/*
 debootstrap --verbose --arch amd64 noble /mnt http://dk.archive.ubuntu.com/ubuntu
 mount -t proc none /mnt/proc
 mount --rbind /sys /mnt/sys

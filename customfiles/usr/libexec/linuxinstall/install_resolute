@@ -2,7 +2,6 @@
 
 # Install base system
 ln -s /usr/share/debootstrap/scripts/gutsy /usr/share/debootstrap/scripts/resolute
-rm -rf /mnt/*
 debootstrap --no-merged-usr --verbose --arch amd64 resolute /mnt http://dk.archive.ubuntu.com/ubuntu
 mount -t proc none /mnt/proc
 mount --rbind /sys /mnt/sys
@@ -20,8 +19,6 @@ chroot /mnt bash -c "curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gp
 chroot /mnt bash -c "curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/cfg/setup/config.deb.txt?distro=debian&version=any-version' | tee -a /etc/apt/sources.list.d/caddy-stable.list"
 chroot /mnt bash -c "setcap cap_net_bind_service=+ep /usr/bin/caddy"
 chroot /mnt apt update
-
-chroot ln -s /proc/self/fd /dev/fd
 
 # Configure locale
 chroot /mnt apt install -y locales
@@ -98,6 +95,9 @@ echo forcedeth >> /mnt/etc/initramfs-tools/modules
 
 # We don't need rpcbind (portmapper) - NFSv4 does not use it
 chroot /mnt apt -y purge --auto-remove rpcbind
+
+# Remove systemd shell integration that messes up older terminals
+rm /mnt/etc/profile.d/80-systemd-osc-context.sh
 
 # Keep a copy of the install scripts on the installed host
 cp -r /usr/libexec/linuxinstall /mnt/usr/libexec/
