@@ -40,7 +40,7 @@ chroot /mnt bash -c "DEBIAN_FRONTEND=noninteractive apt install -y netscript-2.4
 netplan.io resolvconf ethtool openssh-client openssh-server net-tools inetutils-tools \
 bind9-dnsutils bind9-host psmisc vim pciutils dkms vlan unicode-data gnupg git golang \
 wget jq nfs-common ipvsadm caddy python3-pip iputils-ping php-cli php-fpm \
-duplicity zip unzip gcc libxt6 autossh rclone tftp-hpa tftpd-hpa atftp tcpd libwrap0 php-yaml lshw rsync \
+duplicity zip unzip gcc libxt6 autossh rclone tftp-hpa atftp tcpd libwrap0 php-yaml lshw rsync \
 linux-modules-$linux_version xfsprogs yq initramfs-tools gpart fdisk"
 
 # We don't need a running caddy unless we're a master
@@ -98,6 +98,10 @@ chroot /mnt apt -y purge --auto-remove rpcbind
 
 # Remove systemd shell integration that messes up older terminals
 rm /mnt/etc/profile.d/80-systemd-osc-context.sh
+
+# Vim 9 switches the terminal to "modifyOtherKeys" (ESC[>4;2m) and back on exit (ESC[>4;m);
+# older terminals print the sequence as garbage before the prompt. Don't send it.
+printf '" ScienceData: no modifyOtherKeys sequences (older terminals print them)\nset t_TI= t_TE=\n' >> /mnt/etc/vim/vimrc.local
 
 # Keep a copy of the install scripts on the installed host
 cp -r /usr/libexec/linuxinstall /mnt/usr/libexec/
