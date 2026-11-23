@@ -30,6 +30,19 @@ echo 'swapoff -a' >> $INSTALL_DIR/etc/rc.local
 # (raw PREROUTING, set by the pod scripts) exist on the master only. On any other node
 # a public address must not reach the NodePorts - 'connect' exposed all pod SSH ports
 # to the internet this way until 2026-11-22.
+# On the master, the pod scripts give each SSH service externalIPs=<public address> on
+# service port 6022, so <public address>:6022 reaches the first such pod past all the
+# allowed-address rules (which filter the NodePort numbers). Users connect via the
+# NodePorts; nothing needs 6022 from outside (open to the internet until 2026-11-23).
+if [ "$NODETYPE" == "master" ]; then
+	cat <<'EOF' >> $INSTALL_DIR/etc/rc.local
+for a in $(ip -o -4 addr show scope global | awk '{sub("/.*", "", $4); print $4}' | \
+		grep -v -E '^(10|127)\.|^172\.(1[6-9]|2[0-9]|3[01])\.|^192\.168\.'); do
+	iptables -t raw -C PREROUTING -d $a/32 -p tcp --dport 6022 -j DROP 2>/dev/null || \
+	iptables -t raw -I PREROUTING 1 -d $a/32 -p tcp --dport 6022 -j DROP
+done
+EOF
+fi
 if [ "$NODETYPE" != "master" ]; then
 	cat <<'EOF' >> $INSTALL_DIR/etc/rc.local
 for a in $(ip -o -4 addr show scope global | awk '{sub("/.*", "", $4); print $4}' | \
