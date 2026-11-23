@@ -54,6 +54,11 @@ for a in $(ip -o -4 addr show scope global | awk '{sub("/.*", "", $4); print $4}
 done
 EOF
 fi
+# systemd runs /etc/rc.local only if it is executable and starts with #! - kube's
+# (no #!, not executable) never ran and worker1's (no #!) failed at every boot, so the
+# lines above did nothing there. Make sure of both, whoever created the file.
+head -1 $INSTALL_DIR/etc/rc.local | grep -q '^#!' || sed -i '1i #!/bin/sh' $INSTALL_DIR/etc/rc.local
+chmod 755 $INSTALL_DIR/etc/rc.local
 unit_files=`$CHROOT $INSTALL_DIR systemctl list-unit-files | grep \.swap | awk '{print $1}'`
 if [ -n "$unit_files" ]; then
 	$CHROOT $INSTALL_DIR systemctl stop $unit_files
