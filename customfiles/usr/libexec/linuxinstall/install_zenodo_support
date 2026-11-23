@@ -133,11 +133,10 @@ chmod +x /usr/local/sbin/zenodo_host.sh /etc/cron.hourly/zenodo /usr/local/sbin/
 /usr/local/sbin/rabbit_host.sh /etc/cron.hourly/rabbit \
 /etc/cron.daily/zenodo_elasticsearch /usr/local/sbin/zenodo_elasticsearch_backup.sh
 
-# Caddy needs to be able to update root CA
-cat <<EOF >> /etc/sudoers.d/caddy
-# Caddy needs this to update /usr/local/share/ca-certificates/
-caddy	ALL=NOPASSWD:ALL
-EOF
+# No sudo for caddy here: it used to get ALL=NOPASSWD:ALL so it could install its
+# local root CA in /usr/local/share/ca-certificates/, which made any hole in a PHP
+# script on this node root. sudoers.d/caddy is written by setup_pods_access
+# (sciencedata_kubernetes) and allows only the pods' firewall wrapper.
 
 mkdir /etc/caddy
 

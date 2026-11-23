@@ -26,6 +26,21 @@ fi
 $CHROOT $INSTALL_DIR swapoff -a
 sed -Ei 's|^(PARTLABEL=SWAP)|#\1|' $INSTALL_DIR/etc/fstab
 echo 'swapoff -a' >> $INSTALL_DIR/etc/rc.local
+# Kubernetes opens every NodePort on every node, but the pods' allowed-address rules
+# (raw PREROUTING, set by the pod scripts) exist on the master only. On any other node
+# a public address must not reach the NodePorts - 'connect' exposed all pod SSH ports
+# to the internet this way until 2026-11-22.
+if [ "$NODETYPE" != "master" ]; then
+	cat <<'EOF' >> $INSTALL_DIR/etc/rc.local
+for a in $(ip -o -4 addr show scope global | awk '{sub("/.*", "", $4); print $4}' | \
+		grep -v -E '^(10|127)\.|^172\.(1[6-9]|2[0-9]|3[01])\.|^192\.168\.'); do
+	for p in tcp udp; do
+		iptables -t raw -C PREROUTING -d $a/32 -p $p --dport 30000:32767 -j DROP 2>/dev/null || \
+		iptables -t raw -I PREROUTING 1 -d $a/32 -p $p --dport 30000:32767 -j DROP
+	done
+done
+EOF
+fi
 unit_files=`$CHROOT $INSTALL_DIR systemctl list-unit-files | grep \.swap | awk '{print $1}'`
 if [ -n "$unit_files" ]; then
 	$CHROOT $INSTALL_DIR systemctl stop $unit_files
@@ -399,7 +414,11 @@ if [ "$NODETYPE" == "master" ]; then
 	chmod go+rx $INSTALL_DIR/root
 	touch $INSTALL_DIR/var/log/kube.log
 	chown caddy:caddy $INSTALL_DIR/var/log/kube.log
-	chmod go+r $INSTALL_DIR/etc/kubernetes/admin.conf
+	# The web server (php-fpm runs as caddy) gets its own service account (pods.conf)
+	# and a firewall wrapper (pod_iptables) - not admin.conf and unrestricted sudo.
+	# admin.conf stays 0600 (root only).
+	$CHROOT $INSTALL_DIR bash -c "/root/sciencedata_kubernetes/commands/setup_pods_access && /root/sciencedata_kubernetes/commands/setup_pods_access --lockdown" || \
+		echo "WARNING: setup_pods_access failed - the pod scripts have no cluster access" >&2
 	# Caddy configuration
 	mkdir -p $INSTALL_DIR/var/lib/caddy/.config/caddy
 	$CHROOT $INSTALL_DIR chown -R caddy:caddy /var/lib/caddy /usr/share/caddy
