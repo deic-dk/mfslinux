@@ -24,3 +24,22 @@ tar -xzf $INSTALL_DIR/usr/local/software/extra.tar.gz -C $INSTALL_DIR/usr/local/
 rm $INSTALL_DIR/usr/local/software/Wolfram.tar.gz
 rm $INSTALL_DIR/usr/local/software/MATLAB_R2025b.tar.gz
 rm $INSTALL_DIR/usr/local/software/extra.tar.gz
+
+# software-present=yes: the MATLAB and Mathematica pods (pod_manifests) select on it,
+# so they only land on nodes with /usr/local/software (a hostPath is not checked by
+# Kubernetes - a missing directory just becomes an empty one). Do not run this on a
+# node whose outbound traffic does not go via kube (e.g. connect): DTU's license
+# servers are opened for kube's address only.
+# Add a label to the ones the kubelet registers with (KUBELET_EXTRA_ARGS in
+# /etc/default/kubelet), keeping labels set by other install scripts.
+add_node_label() {
+	local f=$INSTALL_DIR/etc/default/kubelet
+	if grep -q -- '--node-labels=' $f 2>/dev/null; then
+		grep -q -- "$1" $f || sed -i "s|--node-labels=|--node-labels=$1,|" $f
+	else
+		echo "KUBELET_EXTRA_ARGS=\"--node-labels=$1\"" >> $f
+	fi
+}
+add_node_label software-present=yes
+echo "Science software installed. If this node has already joined the cluster, on the control plane:"
+echo "  kubectl label node `hostname` software-present=yes"

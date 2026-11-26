@@ -1,0 +1,86 @@
+#!/bin/bash
+
+########################
+### Set variables
+########################
+
+SCRIPTDIR=$( dirname -- "$0"; )
+. "$SCRIPTDIR/set_params"
+
+########################
+### Deploy the license relay
+########################
+# Pods reach DTU's MATLAB and Mathematica license servers as licenses:1711/1712/16286.
+# A chisel client on login.gbar.dtu.dk dials out to the chisel server deployed here
+# (see sciencedata_kubernetes: system_yaml/license_relay.yaml and the README).
+
+RELAY_DIR=$INSTALL_DIR/root/license_relay
+YAML=/root/sciencedata_kubernetes/system_yaml/license_relay.yaml
+
+# Credentials for the gbar client: a password that may open only the three reverse
+# ports, and the server key (its fingerprint is pinned by the client).
+if [ ! -e $RELAY_DIR/users.json ]; then
+	mkdir -m 700 -p $RELAY_DIR
+	P=$(openssl rand -hex 24)
+	printf '{\n  "gbar:%s": ["^R:0\\\\.0\\\\.0\\\\.0:(1711|1712|16286)$"]\n}\n' "$P" > $RELAY_DIR/users.json
+	$CHROOT $INSTALL_DIR bash -c "kubectl run chisel-keygen --rm -i --quiet --restart=Never \
+		--image=jpillora/chisel:1.10.1 -- server --keygen - > /root/license_relay/key"
+	chmod 600 $RELAY_DIR/users.json $RELAY_DIR/key
+	echo "License relay: password for the gbar client (AUTH=gbar:...): $P"
+fi
+$CHROOT $INSTALL_DIR bash -c "kubectl get secret license-relay >&/dev/null || \
+	kubectl create secret generic license-relay --from-file=/root/license_relay/users.json --from-file=/root/license_relay/key"
+
+# Deploy the relay
+$CHROOT $INSTALL_DIR kubectl apply -f $YAML
+$CHROOT $INSTALL_DIR kubectl rollout status deploy/license-relay --timeout=300s && \
+	$CHROOT $INSTALL_DIR kubectl logs deploy/license-relay | grep -i fingerprint
+
+# Script and cronjob to point license-relay to the relay pod
+ls $INSTALL_DIR/usr/local/sbin/license_relay_host.sh >&/dev/null || \
+cat <<"EOF" > $INSTALL_DIR/usr/local/sbin/license_relay_host.sh
+#!/bin/bash
+
+lbip=`get_containers cloud 2>/dev/null | grep -E '\|license-relay\|' | awk -F \| '{print $4}'`
+
+if [ -z "$lbip" ]; then
+  exit 1
+fi
+
+grep "$lbip" /etc/hosts >&/dev/null || sed -i -E "s|^[0-9\.]+\s+(license-relay)|$lbip\t\1|" /etc/hosts
+grep "license-relay" /etc/hosts >&/dev/null || echo "$lbip  license-relay" >> /etc/hosts
+EOF
+
+ls $INSTALL_DIR/etc/cron.hourly/license_relay_host >&/dev/null || \
+cat <<EOF > $INSTALL_DIR/etc/cron.hourly/license_relay_host
+#!/bin/sh
+/usr/local/sbin/license_relay_host.sh
+EOF
+
+chmod +x $INSTALL_DIR/usr/local/sbin/license_relay_host.sh $INSTALL_DIR/etc/cron.hourly/license_relay_host
+$CHROOT $INSTALL_DIR /usr/local/sbin/license_relay_host.sh
+
+########################
+### caddy configuration
+########################
+
+# We're assuming a running caddy has already been configured.
+ls $INSTALL_DIR/etc/caddy/sites || mkdir $INSTALL_DIR/etc/caddy/sites
+ls $INSTALL_DIR/etc/caddy/sites/license-relay.caddy >&/dev/null || \
+cat <<EOF > $INSTALL_DIR/etc/caddy/sites/license-relay.caddy
+### license-relay ###
+# Tunnel endpoint for the license relay: only gbar's login nodes get through.
+
+https://kube.sciencedata.dk:4443 {
+	@gbar remote_ip 192.38.95.134 192.38.95.135
+	handle @gbar {
+		reverse_proxy http://license-relay:8080
+	}
+	respond 403
+	log {
+		output file /var/log/caddy/license-relay.log
+	}
+}
+EOF
+# Caddy runs with 'admin off': restart, not reload
+$CHROOT $INSTALL_DIR systemctl restart caddy

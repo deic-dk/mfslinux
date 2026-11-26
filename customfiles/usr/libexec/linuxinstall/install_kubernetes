@@ -42,6 +42,14 @@ for a in $(ip -o -4 addr show scope global | awk '{sub("/.*", "", $4); print $4}
 	iptables -t raw -I PREROUTING 1 -d $a/32 -p tcp --dport 6022 -j DROP
 done
 EOF
+	# The master's own requests to its public address (e.g. run_pod asking a ScienceData
+	# server reached through one of the pod ports) come back in on lo and would meet
+	# the pods' allowed-address rules: let them through, first. Pods arrive over the
+	# CNI bridge, not lo, so they stay filtered. (Test silos' pod starts hung on this
+	# from 2026-11-23 to 2026-11-26.)
+	cat <<'EOF' >> $INSTALL_DIR/etc/rc.local
+iptables -t raw -C PREROUTING -i lo -j ACCEPT 2>/dev/null || iptables -t raw -I PREROUTING 1 -i lo -j ACCEPT
+EOF
 fi
 if [ "$NODETYPE" != "master" ]; then
 	cat <<'EOF' >> $INSTALL_DIR/etc/rc.local
@@ -309,8 +317,18 @@ $CHROOT $INSTALL_DIR systemctl disable netscript
 # nodes already in the cluster are labelled by hand). avx-present: Claude Code's
 # native x64 binary needs AVX and dies with "Illegal instruction" without it;
 # pod_manifests/ubuntu_noble_claude.yaml selects on this label.
+# Add a label to the ones the kubelet registers with (KUBELET_EXTRA_ARGS in
+# /etc/default/kubelet), keeping labels set by other install scripts.
+add_node_label() {
+	local f=$INSTALL_DIR/etc/default/kubelet
+	if grep -q -- '--node-labels=' $f 2>/dev/null; then
+		grep -q -- "$1" $f || sed -i "s|--node-labels=|--node-labels=$1,|" $f
+	else
+		echo "KUBELET_EXTRA_ARGS=\"--node-labels=$1\"" >> $f
+	fi
+}
 if grep -q -w avx /proc/cpuinfo; then
-	echo 'KUBELET_EXTRA_ARGS="--node-labels=avx-present=yes"' > $INSTALL_DIR/etc/default/kubelet
+	add_node_label avx-present=yes
 fi
 
 if [ "$NODETYPE" == "master" ]; then
