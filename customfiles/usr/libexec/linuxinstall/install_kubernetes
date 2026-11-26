@@ -446,6 +446,19 @@ if [ "$NODETYPE" == "master" ]; then
 	ln -s /root/sciencedata_kubernetes/commands/get_pod_logs $INSTALL_DIR/usr/local/bin/get_pod_logs
 	ln -s /root/sciencedata_kubernetes/commands/set_allowed_ips $INSTALL_DIR/usr/local/bin/set_allowed_ips
 	ln -s /root/sciencedata_kubernetes/commands/set_port_numbers $INSTALL_DIR/usr/local/bin/set_port_numbers
+	# Keep the Jupyter image cached on every node (pods of the untagged image check the
+	# registry at each start and pull what changed - after a rebuild, the first start on
+	# each node would wait for ~15 GB). Nightly; only the list's images (others are used
+	# too rarely to fill the nodes' disks with them).
+	ln -s /root/sciencedata_kubernetes/commands/prepull_images $INSTALL_DIR/usr/local/bin/prepull_images
+	mkdir -p $INSTALL_DIR/usr/local/etc/kube
+	ls $INSTALL_DIR/usr/local/etc/kube/prepull_images.txt >&/dev/null || \
+		printf '%s\n' '# Images kept cached on every node (prepull_images, nightly from /etc/cron.d/prepull_images)' \
+			'sciencedata/jupyter_sciencedata_custom' > $INSTALL_DIR/usr/local/etc/kube/prepull_images.txt
+	# (a cron.d file's last line needs its newline, or cron ignores it)
+	printf '%s\n' 'SHELL=/bin/bash' 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' \
+		'30 2 * * * root /usr/local/bin/prepull_images >> /var/log/prepull_images.log 2>&1' > $INSTALL_DIR/etc/cron.d/prepull_images
+	chmod 644 $INSTALL_DIR/etc/cron.d/prepull_images
 	$CHROOT $INSTALL_DIR bash -c "cd /usr/share/caddy; ls /root/sciencedata_kubernetes/commands/*.php | while read name; do ln -s "$name"; done"
 	chmod go+rx $INSTALL_DIR/root
 	touch $INSTALL_DIR/var/log/kube.log
