@@ -9,3 +9,6 @@ sed -i 's|^#PermitRootLogin .*|PermitRootLogin yes|' /mnt/etc/ssh/sshd_config
 atftp $tftp_server_ip -g -r /ubuntu/config/private/authorized_keys -l authorized_keys
 ls -d  "/mnt/root/.ssh" || mkdir "/mnt/root/.ssh"
 mv authorized_keys "/mnt/root/.ssh/"
+# The boxes' shared root key (root@data.deic.dk): only from lab (security_watch, admin). Its private
+# half is on every box; without this, root on any of them was root here.
+sed -i -E 's|^(from="[^"]*" )?(ssh-rsa [A-Za-z0-9+/=]+ root@data\.deic\.dk)$|from="10.0.0.20" \2|' "/mnt/root/.ssh/authorized_keys"

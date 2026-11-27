@@ -1,0 +1,12 @@
+# /etc/hosts.allow - Kubernetes nodes (mfslinux). sshd is built with libwrap: these are the only
+# addresses SSH accepts; hosts.deny refuses everyone else (ALL: ALL). First match wins.
+# Admins (Frederik's home + DTU desktop NAT), DeiC's firewall, the monitoring host, the private
+# network (lab, silos, other nodes), lab's subnet. The pod network (10.2) is refused.
+sshd :  fw.rnd.forskningsnettet.dk : allow
+sshd :  10.33.0. : allow
+sshd :  87.73.109.19 : allow
+sshd :  130.225.245.245 : allow
+sshd :  10.0.0. : allow
+sshd :  10.2. : deny
+sshd :  130.226.157. : allow
+sshd :  192.38.111.185 : allow

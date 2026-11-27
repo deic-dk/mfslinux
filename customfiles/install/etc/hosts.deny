@@ -1,0 +1,5 @@
+# /etc/hosts.deny - Kubernetes nodes (mfslinux): refuse everyone not allowed in hosts.allow.
+# (Was 'ALL: PARANOID' on kube and worker1 until 2026-11-27 - that refuses only hosts whose
+# reverse DNS does not match; the internet got through to sshd, ~25,000 root password guesses
+# on kube in five days.)
+ALL: ALL
